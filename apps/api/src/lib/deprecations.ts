@@ -10,39 +10,37 @@ interface Deprecation {
 const DEPRECATIONS = {
   v1_extract: {
     message:
-      "POST /v1/extract is deprecated. Use POST /v2/scrape with formats including a 'json' format object.",
+      "/v1/extract is deprecated. Use /v2/scrape with formats including a 'json' format object.",
     replacement: "/v2/scrape",
   },
   v1_extract_status: {
     message:
-      "GET /v1/extract/:jobId is deprecated. Use POST /v2/scrape with formats including a 'json' format object.",
+      "/v1/extract/:jobId is deprecated. Use /v2/scrape with formats including a 'json' format object.",
     replacement: "/v2/scrape",
   },
   v2_extract: {
     message:
-      "POST /v2/extract is deprecated. Use POST /v2/scrape with formats including a 'json' format object.",
+      "/v2/extract is deprecated. Use /v2/scrape with formats including a 'json' format object.",
     replacement: "/v2/scrape",
   },
   v2_extract_status: {
     message:
-      "GET /v2/extract/:jobId is deprecated. Use POST /v2/scrape with formats including a 'json' format object.",
+      "/v2/extract/:jobId is deprecated. Use /v2/scrape with formats including a 'json' format object.",
     replacement: "/v2/scrape",
   },
   v1_deep_research: {
-    message:
-      "POST /v1/deep-research is deprecated. Use POST /v2/search instead.",
+    message: "/v1/deep-research is deprecated. Use /v2/search instead.",
     replacement: "/v2/search",
   },
   v1_deep_research_status: {
-    message:
-      "GET /v1/deep-research/:jobId is deprecated. Use POST /v2/search instead.",
+    message: "/v1/deep-research/:jobId is deprecated. Use /v2/search instead.",
     replacement: "/v2/search",
   },
   v1_llmstxt: {
-    message: "POST /v1/llmstxt is deprecated and will not be replaced.",
+    message: "/v1/llmstxt is deprecated and will not be replaced.",
   },
   v1_llmstxt_status: {
-    message: "GET /v1/llmstxt/:jobId is deprecated and will not be replaced.",
+    message: "/v1/llmstxt/:jobId is deprecated and will not be replaced.",
   },
 } as const satisfies Record<string, Deprecation>;
 
