@@ -1,0 +1,24 @@
+---
+title: "v2.10.0 is live"
+date: "May 15, 2026"
+description: "Firecrawl v2.10.0 ships the /parse endpoint, Lockdown Mode, Question and Highlights formats, a Video format, the Monitor API, and four new official SDKs."
+---
+
+## v2.10.0 is live
+
+Firecrawl v2.10.0 ships a new `/parse` endpoint, Lockdown Mode, Question and Highlights formats, a Video format, the Monitor API, and four new official SDKs (Go, Ruby, PHP, .NET) — plus a long list of reliability and security fixes.
+
+### Highlights
+
+- **`/parse` endpoint** — Upload PDFs, Word docs, spreadsheets, and HTML files up to 50 MB and get clean, LLM-ready Markdown, JSON, or summaries back. Powered by a Rust-based engine with full Zero Data Retention support.
+- **Lockdown Mode** — Set `lockdown: true` on `/scrape` to serve results exclusively from Firecrawl's index with no outbound requests and zero data retention by default. Available everywhere, including the CLI (`--lockdown`) and MCP.
+- **Question Format** — Pass a natural-language prompt to `/scrape` and get a grounded, hallucination-free answer back in `data.question`, with up to 100x fewer tokens per call.
+- **Highlights Format** — Get back the exact sentences, code blocks, and table rows on a page that match your query, with original formatting and provenance preserved.
+- **Video Format** — Request `video` from `/scrape` to extract a downloadable signed video URL for supported sites like YouTube.
+- **Monitor API** — New `/v2/monitor` endpoints for scheduling page-change checks with diff history, webhook and email notifications, and manual runs.
+- **`/search` Domain Filters & Feedback** — Added `includeDomains` and `excludeDomains` parameters, plus a `POST /v2/search/:jobId/feedback` endpoint that refunds a credit on each accepted rating.
+- **Four New Official SDKs** — Go, Ruby, PHP (with Laravel support), and .NET all joined the SDK family with v2 parity. The Rust SDK has been promoted to the official v2 SDK.
+- **Custom robots.txt Agent** — Added `robotsUserAgent` to `/crawl` to evaluate robots.txt against a custom agent, gated by a new `customRobotsAgent` org flag independent from `ignoreRobots`.
+- **Deprecation Warnings** — Legacy `/v0/*`, `/v1/extract`, `/v2/extract`, `/v1/deep-research`, and `/v1/llmstxt` endpoints now return RFC-compliant `Deprecation`, `Warning`, `Link`, and `Sunset` headers plus a structured `warnings[]` and `replacement` field in the response body.
+
+Read the full changelog [here](https://github.com/firecrawl/firecrawl/releases/tag/v2.10.0).
