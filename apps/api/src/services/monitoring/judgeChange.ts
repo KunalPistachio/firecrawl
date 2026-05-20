@@ -95,25 +95,39 @@ const JUDGE_MAX_ATTEMPTS = 3;
 const JUDGE_BACKOFF_MS = [300, 800];
 const judgeModel = google(JUDGE_MODEL_NAME);
 
+// Transient-error classifier for retry decisions. Relies on structured
+// error fields only (HTTP status code, Node syscall `code`, abort/timeout
+// name). Avoids matching on message strings, which are locale- and
+// SDK-version-dependent and easy to over-match (e.g. "network" hits any
+// error mentioning networking in passing).
+const RETRY_HTTP_STATUSES = new Set([408, 425, 429]);
+const RETRY_SYSCALL_CODES = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+  "ENETUNREACH",
+  "EPIPE",
+]);
+
 function isTransientJudgeError(error: unknown): boolean {
-  if (!error) return false;
-  const err = error as { name?: string; statusCode?: number; status?: number; message?: string };
+  if (!error || typeof error !== "object") return false;
+  const err = error as {
+    name?: string;
+    code?: string;
+    statusCode?: number;
+    status?: number;
+  };
   if (err.name === "AbortError" || err.name === "TimeoutError") return true;
-  const code = err.statusCode ?? err.status;
-  if (typeof code === "number" && (code === 408 || code === 425 || code === 429 || code >= 500)) {
+  if (typeof err.code === "string" && RETRY_SYSCALL_CODES.has(err.code)) {
     return true;
   }
-  const msg = (err.message ?? "").toLowerCase();
-  return (
-    msg.includes("timeout") ||
-    msg.includes("timed out") ||
-    msg.includes("econnreset") ||
-    msg.includes("etimedout") ||
-    msg.includes("socket hang up") ||
-    msg.includes("network") ||
-    msg.includes("503") ||
-    msg.includes("rate limit")
-  );
+  const httpStatus = err.statusCode ?? err.status;
+  if (typeof httpStatus === "number") {
+    if (RETRY_HTTP_STATUSES.has(httpStatus)) return true;
+    if (httpStatus >= 500 && httpStatus <= 599) return true;
+  }
+  return false;
 }
 
 async function callGemini(args: {
@@ -150,7 +164,9 @@ async function callGemini(args: {
   throw lastError;
 }
 
-export async function judgeChange(args: JudgeChangeArgs): Promise<JudgmentResult> {
+export async function judgeChange(
+  args: JudgeChangeArgs,
+): Promise<JudgmentResult> {
   const { logger, goal, extractionPrompt, jsonDiff, markdownDiff } = args;
 
   const parts: string[] = [`MONITOR GOAL:\n${goal.trim()}`];
@@ -204,38 +220,38 @@ export async function judgeChange(args: JudgeChangeArgs): Promise<JudgmentResult
       };
     }
 
+    let parsed: Partial<JudgmentResult>;
     try {
-      const parsed = JSON.parse(match[0]) as Partial<JudgmentResult>;
-      return {
-        meaningful: Boolean(parsed.meaningful),
-        confidence:
-          parsed.confidence === "high" ||
-          parsed.confidence === "medium" ||
-          parsed.confidence === "low"
-            ? parsed.confidence
-            : "low",
-        reason:
-          typeof parsed.reason === "string"
-            ? parsed.reason
-            : "No reason provided.",
-        fields: Array.isArray(parsed.fields)
-          ? parsed.fields.filter(f => typeof f === "string")
-          : [],
-      };
-    } catch {
-      const mBool = match[0].match(/"meaningful"\s*:\s*(true|false)/);
-      const mConf = match[0].match(/"confidence"\s*:\s*"(high|medium|low)"/);
-      const mReason = match[0].match(/"reason"\s*:\s*"([^]*?)"\s*(?:,|\})/);
-      logger.warn("Judge JSON parse failed, using regex fallback", {
+      parsed = JSON.parse(match[0]) as Partial<JudgmentResult>;
+    } catch (parseError) {
+      logger.warn("Judge JSON parse failed — defaulting to meaningful", {
         textPeek: match[0].slice(0, 200),
+        parseError:
+          parseError instanceof Error ? parseError.message : String(parseError),
       });
       return {
-        meaningful: mBool ? mBool[1] === "true" : true,
-        confidence: (mConf?.[1] as JudgmentResult["confidence"]) ?? "low",
-        reason: mReason?.[1]?.replace(/\s+/g, " ").slice(0, 200) ?? "(parse-fallback)",
+        meaningful: true,
+        confidence: "low",
+        reason: "Judge response not valid JSON — defaulting to meaningful.",
         fields: [],
       };
     }
+    return {
+      meaningful: Boolean(parsed.meaningful),
+      confidence:
+        parsed.confidence === "high" ||
+        parsed.confidence === "medium" ||
+        parsed.confidence === "low"
+          ? parsed.confidence
+          : "low",
+      reason:
+        typeof parsed.reason === "string" && parsed.reason.length > 0
+          ? parsed.reason
+          : "No reason provided.",
+      fields: Array.isArray(parsed.fields)
+        ? parsed.fields.filter((f): f is string => typeof f === "string")
+        : [],
+    };
   } catch (error) {
     const transient = isTransientJudgeError(error);
     logger.error("Judge call failed", { error, transient });
