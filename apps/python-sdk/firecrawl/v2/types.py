@@ -894,6 +894,8 @@ class MonitorCreateRequest(BaseModel):
     notification: Optional[MonitorNotification] = None
     targets: List[Union[MonitorTarget, Dict[str, Any]]]
     retention_days: Optional[int] = Field(default=None, alias="retentionDays")
+    goal: Optional[str] = None
+    judge_enabled: Optional[bool] = Field(default=None, alias="judgeEnabled")
 
 
 class MonitorUpdateRequest(BaseModel):
@@ -906,6 +908,8 @@ class MonitorUpdateRequest(BaseModel):
     notification: Optional[Union[MonitorNotification, Dict[str, Any]]] = None
     targets: Optional[List[Union[MonitorTarget, Dict[str, Any]]]] = None
     retention_days: Optional[int] = Field(default=None, alias="retentionDays")
+    goal: Optional[str] = None
+    judge_enabled: Optional[bool] = Field(default=None, alias="judgeEnabled")
 
 
 class MonitorSummary(BaseModel):

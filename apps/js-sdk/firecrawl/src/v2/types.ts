@@ -695,6 +695,8 @@ export interface CreateMonitorRequest {
   notification?: MonitorNotification;
   targets: MonitorTarget[];
   retentionDays?: number;
+  goal?: string;
+  judgeEnabled?: boolean;
 }
 
 export interface UpdateMonitorRequest {
@@ -705,6 +707,8 @@ export interface UpdateMonitorRequest {
   notification?: MonitorNotification | null;
   targets?: MonitorTarget[];
   retentionDays?: number;
+  goal?: string | null;
+  judgeEnabled?: boolean;
 }
 
 export interface MonitorSummary {

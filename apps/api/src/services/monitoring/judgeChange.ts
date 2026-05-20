@@ -95,14 +95,6 @@ const JUDGE_MAX_ATTEMPTS = 3;
 const JUDGE_BACKOFF_MS = [300, 800];
 const judgeModel = google(JUDGE_MODEL_NAME);
 
-function isTransientJudgeError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const err = error as { name?: string; statusCode?: number; status?: number };
-  if (err.name === "AbortError" || err.name === "TimeoutError") return true;
-  const status = err.statusCode ?? err.status;
-  return status === 429 || (typeof status === "number" && status >= 500);
-}
-
 async function callGemini(args: {
   userBlock: string;
 }): Promise<{ text: string }> {
@@ -124,9 +116,7 @@ async function callGemini(args: {
       return { text: result.text?.trim() ?? "" };
     } catch (error) {
       lastError = error;
-      if (attempt >= JUDGE_MAX_ATTEMPTS || !isTransientJudgeError(error)) {
-        throw error;
-      }
+      if (attempt >= JUDGE_MAX_ATTEMPTS) throw error;
       const backoff = JUDGE_BACKOFF_MS[attempt - 1] ?? 800;
       const jitter = Math.floor(Math.random() * backoff);
       await new Promise(resolve => setTimeout(resolve, backoff + jitter));
@@ -230,14 +220,11 @@ export async function judgeChange(
         : [],
     };
   } catch (error) {
-    const transient = isTransientJudgeError(error);
-    logger.error("Judge call failed", { error, transient });
+    logger.error("Judge call failed", { error });
     return {
       meaningful: true,
       confidence: "low",
-      reason: transient
-        ? `Judge call timed out or upstream error after ${JUDGE_MAX_ATTEMPTS} attempts — defaulting to meaningful.`
-        : `Judge call failed — defaulting to meaningful. (${error instanceof Error ? error.message : "unknown"})`,
+      reason: `Judge call failed — defaulting to meaningful. (${error instanceof Error ? error.message : "unknown"})`,
       fields: [],
     };
   }
