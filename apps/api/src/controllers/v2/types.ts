@@ -625,6 +625,7 @@ const baseScrapeOptions = z.strictObject({
   __experimental_omce: z.boolean().prefault(false).optional(),
   __experimental_omceDomain: z.string().optional(),
   __experimental_engpicker: z.boolean().prefault(false).optional(),
+  __experimental_htmlExtractor: z.boolean().prefault(false).optional(),
   __forceFirePDF: z.boolean().prefault(false).optional(),
 });
 

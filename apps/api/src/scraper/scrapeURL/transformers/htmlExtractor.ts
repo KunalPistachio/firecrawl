@@ -9,7 +9,10 @@ export async function performHtmlExtractor(
   meta: Meta,
   document: Document,
 ): Promise<Document> {
-  const live = ENV_LIVE || meta.internalOptions.useHtmlExtractor === true;
+  const live =
+    ENV_LIVE ||
+    meta.internalOptions.useHtmlExtractor === true ||
+    meta.options.__experimental_htmlExtractor === true;
   const shadow = !live && ENV_SHADOW;
 
   if (!live && !shadow) return document;
@@ -56,8 +59,7 @@ export async function performHtmlExtractor(
       rawHtmlBytes: document.rawHtml.length,
       legacyMarkdownBytes: legacyBytes,
       newMarkdownBytes: result.markdown.length,
-      sizeRatio:
-        legacyBytes > 0 ? result.markdown.length / legacyBytes : null,
+      sizeRatio: legacyBytes > 0 ? result.markdown.length / legacyBytes : null,
       pageType: result.pageType,
       extractionQuality: result.extractionQuality,
       durationMs,
