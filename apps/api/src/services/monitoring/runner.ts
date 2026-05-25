@@ -62,6 +62,8 @@ const poll = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export { isMonitorCheckStale, MONITOR_CHECK_STALE_TIMEOUT_MS };
 
 const MONITOR_DEFAULT_WAIT_FOR_MS = 5000;
+const MONITOR_MAX_WAIT_FOR_MS = 60000;
+const MONITOR_MAX_TIMEOUT_MS = MONITOR_MAX_WAIT_FOR_MS * 2;
 
 type PageResult = MonitorCheckPageInsert & {
   emailStatus?: string;
@@ -122,10 +124,14 @@ function withMonitorScrapeDefaults(
     typeof options.waitFor === "number"
       ? options.waitFor
       : MONITOR_DEFAULT_WAIT_FOR_MS;
+  const timeout =
+    typeof options.timeout === "number"
+      ? Math.min(Math.max(options.timeout, waitFor * 2), MONITOR_MAX_TIMEOUT_MS)
+      : Math.min(waitFor * 2, MONITOR_MAX_TIMEOUT_MS);
 
   return {
     maxAge: 0,
-    ...withMarkdownFormat({ ...options, formats, waitFor }),
+    ...withMarkdownFormat({ ...options, formats, waitFor, timeout }),
   };
 }
 
