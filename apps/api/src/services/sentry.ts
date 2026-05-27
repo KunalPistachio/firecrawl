@@ -48,6 +48,38 @@ const transportableErrorCodes = [
   "CRAWL_DENIAL",
 ];
 
+function getStringField(
+  error: Record<string, unknown>,
+  fields: string[],
+): string {
+  for (const field of fields) {
+    if (error[field] !== undefined && error[field] !== null) {
+      return String(error[field]);
+    }
+  }
+
+  return "";
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return String(error.message || "");
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (error && typeof error === "object") {
+    return getStringField(error as Record<string, unknown>, [
+      "message",
+      "value",
+    ]);
+  }
+
+  return "";
+}
+
 export function shouldIgnoreSentryException(error: unknown): boolean {
   if (isQueueFullError(error)) {
     return true;
@@ -71,8 +103,7 @@ export function shouldIgnoreSentryException(error: unknown): boolean {
   // plain Error with message like `${code}|${json}` (see error-serde.ts).
   // In that case, `error.code` is missing, so extract it from the message.
   const errorCodeFromField = "code" in error ? String(error.code) : "";
-  const errorMessage =
-    error instanceof Error ? String(error.message || "") : "";
+  const errorMessage = getErrorMessage(error);
 
   // Ignore cancellation errors (fallback for serialized errors)
   if (

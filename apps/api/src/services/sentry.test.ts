@@ -80,6 +80,33 @@ describe("sentry filtering", () => {
     ).toBe(true);
   });
 
+  it("recognizes serialized transportable errors in Sentry exception values", () => {
+    expect(
+      shouldIgnoreSentryException({
+        type: "Error",
+        value: 'SCRAPE_TIMEOUT|{"message":"timeout"}',
+      }),
+    ).toBe(true);
+  });
+
+  it("recognizes cancellation errors in Sentry exception values", () => {
+    expect(
+      shouldIgnoreSentryException({
+        type: "Error",
+        value: "Parent crawl/batch scrape was cancelled",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not ignore unexpected Sentry exception values", () => {
+    expect(
+      shouldIgnoreSentryException({
+        type: "Error",
+        value: "boom",
+      }),
+    ).toBe(false);
+  });
+
   it("still captures unexpected errors", () => {
     const error = new Error("boom");
 
