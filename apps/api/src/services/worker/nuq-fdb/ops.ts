@@ -1,4 +1,5 @@
 import type { Transaction } from "foundationdb";
+import { logger as _logger } from "../../../lib/logger";
 import {
   NuqFdbKeyspace,
   QueueEntry,
@@ -187,6 +188,7 @@ export async function popTeamPending(
   ks: NuqFdbKeyspace,
   tid: string,
 ): Promise<QueueEntry | null> {
+  const startedAt = Date.now();
   const range = ks.teamShardCountRange(tid);
   const counts = await tn.snapshot().getRangeAll(range.begin, range.end);
   const nonEmpty: number[] = [];
@@ -199,18 +201,45 @@ export async function popTeamPending(
     const j = Math.floor(Math.random() * (i + 1));
     [nonEmpty[i], nonEmpty[j]] = [nonEmpty[j], nonEmpty[i]];
   }
+  let probedShards = 0;
+  let staleShardCounters = 0;
   for (const shard of nonEmpty.slice(0, 3)) {
+    probedShards++;
     const r = ks.teamPendingShardRange(tid, shard);
     const head = await tn.getRangeAll(r.begin, r.end, { limit: 1 });
-    if (head.length === 0) continue; // counter was stale
+    if (head.length === 0) {
+      staleShardCounters++;
+      continue; // counter was stale
+    }
     const [key, value] = head[0];
     const e = decodeJson<QueueEntry>(value as Buffer)!;
     tn.clear(key as Buffer);
     tn.add(ks.teamShardCount(tid, shard), MINUS_ONE);
     tn.add(ks.teamPendingCount(tid), MINUS_ONE);
     clearBacklogTimeout(tn, ks, e);
+    _logger.debug("NuQ FDB team pending promotion", {
+      canonicalLog: "nuq-fdb/team_pending_promotion",
+      queueName: ks.queueName,
+      result: "promoted",
+      durationMs: Date.now() - startedAt,
+      nonEmptyShardCount: nonEmpty.length,
+      probedShardCount: probedShards,
+      staleShardCounterCount: staleShardCounters,
+      selectedShard: shard,
+      priority: e.p,
+      queuedAgeMs: Date.now() - e.c,
+    });
     return e;
   }
+  _logger.debug("NuQ FDB team pending promotion", {
+    canonicalLog: "nuq-fdb/team_pending_promotion",
+    queueName: ks.queueName,
+    result: "empty",
+    durationMs: Date.now() - startedAt,
+    nonEmptyShardCount: nonEmpty.length,
+    probedShardCount: probedShards,
+    staleShardCounterCount: staleShardCounters,
+  });
   return null;
 }
 

@@ -345,10 +345,12 @@ export class NuQFdbQueue<JobData = any, JobReturnValue = any> {
   public async getJobToProcess(
     logger: Logger = _logger,
   ): Promise<NuQFdbJob<JobData, JobReturnValue> | null> {
+    const startedAt = Date.now();
     // blind random probes win at high occupancy (no coordination, conflicts
     // spread across shards); the occupancy scan below covers the sparse case
     const PROBES = 4;
     const tried = new Set<number>();
+    let randomDropped = 0;
     while (tried.size < PROBES) {
       const shard = Math.floor(Math.random() * READY_SHARDS);
       if (tried.has(shard)) continue;
@@ -360,9 +362,21 @@ export class NuQFdbQueue<JobData = any, JobReturnValue = any> {
       if (result === "dropped") {
         // tombstone or cancelled-group divert consumed an entry; same shard
         // may hold live work, try it again without burning a probe
+        randomDropped++;
         continue;
       }
       this.leaseExps.set(result.id, result.leaseExpiresAt!.getTime());
+      logger.debug("NuQ FDB dequeue attempt", {
+        canonicalLog: "nuq-fdb/dequeue",
+        queueName: this.queueName,
+        result: "job",
+        path: "random_probe",
+        durationMs: Date.now() - startedAt,
+        readyShards: READY_SHARDS,
+        randomProbeCount: tried.size + 1,
+        randomEmptyCount: tried.size,
+        randomDroppedCount: randomDropped,
+      });
       return result;
     }
 
@@ -382,16 +396,56 @@ export class NuQFdbQueue<JobData = any, JobReturnValue = any> {
       const j = Math.floor(Math.random() * (i + 1));
       [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
     }
+    let fallbackDropped = 0;
+    let fallbackEmpty = 0;
+    let fallbackAttempts = 0;
     for (const shard of candidates.slice(0, 8)) {
       if (tried.has(shard)) continue;
       for (let attempt = 0; attempt < 4; attempt++) {
+        fallbackAttempts++;
         const result = await this.takeFromShard(shard);
-        if (result === "empty") break;
-        if (result === "dropped") continue;
+        if (result === "empty") {
+          fallbackEmpty++;
+          break;
+        }
+        if (result === "dropped") {
+          fallbackDropped++;
+          continue;
+        }
         this.leaseExps.set(result.id, result.leaseExpiresAt!.getTime());
+        logger.debug("NuQ FDB dequeue attempt", {
+          canonicalLog: "nuq-fdb/dequeue",
+          queueName: this.queueName,
+          result: "job",
+          path: "sparse_scan",
+          durationMs: Date.now() - startedAt,
+          readyShards: READY_SHARDS,
+          randomProbeCount: tried.size,
+          randomEmptyCount: tried.size,
+          randomDroppedCount: randomDropped,
+          nonEmptyCandidateCount: candidates.length,
+          fallbackAttemptCount: fallbackAttempts,
+          fallbackEmptyCount: fallbackEmpty,
+          fallbackDroppedCount: fallbackDropped,
+        });
         return result;
       }
     }
+    logger.debug("NuQ FDB dequeue attempt", {
+      canonicalLog: "nuq-fdb/dequeue",
+      queueName: this.queueName,
+      result: "empty",
+      path: "sparse_scan",
+      durationMs: Date.now() - startedAt,
+      readyShards: READY_SHARDS,
+      randomProbeCount: tried.size,
+      randomEmptyCount: tried.size,
+      randomDroppedCount: randomDropped,
+      nonEmptyCandidateCount: candidates.length,
+      fallbackAttemptCount: fallbackAttempts,
+      fallbackEmptyCount: fallbackEmpty,
+      fallbackDroppedCount: fallbackDropped,
+    });
     return null;
   }
 

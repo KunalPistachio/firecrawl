@@ -44,6 +44,14 @@ const SWEEP_LOCK_TTL_MS = 15_000;
 const SWEEP_BATCH = 50;
 const STALL_FAILED_REASON = "Job stalled too many times";
 
+type SweepLagStats = {
+  dueCount: number;
+  processedCount: number;
+  oldestOverdueAgeMs: number;
+  saturatedBucketCount: number;
+  durationMs: number;
+};
+
 function entryFromMeta(id: string, meta: JobMeta): QueueEntry {
   return {
     i: id,
@@ -54,6 +62,55 @@ function entryFromMeta(id: string, meta: JobMeta): QueueEntry {
     c: meta.c,
     to: meta.to,
   };
+}
+
+function emptySweepLagStats(): SweepLagStats {
+  return {
+    dueCount: 0,
+    processedCount: 0,
+    oldestOverdueAgeMs: 0,
+    saturatedBucketCount: 0,
+    durationMs: 0,
+  };
+}
+
+function addDueKeysToLagStats(
+  stats: SweepLagStats,
+  ks: NuqFdbKeyspace,
+  due: [unknown, unknown][],
+  now: number,
+): void {
+  stats.dueCount += due.length;
+  if (due.length >= SWEEP_BATCH) stats.saturatedBucketCount++;
+  for (const [key] of due) {
+    const dueAt = Number(ks.unpackId(key as Buffer, 1));
+    if (Number.isFinite(dueAt)) {
+      stats.oldestOverdueAgeMs = Math.max(
+        stats.oldestOverdueAgeMs,
+        now - dueAt,
+      );
+    }
+  }
+}
+
+function logSweepLag(
+  logger: Logger,
+  queue: NuQFdbQueue,
+  index: "lease" | "backlog_timeout" | "delay",
+  stats: SweepLagStats,
+): void {
+  if (stats.dueCount === 0 && stats.saturatedBucketCount === 0) return;
+  logger[stats.saturatedBucketCount > 0 ? "warn" : "debug"](
+    "NuQ FDB sweeper lag",
+    {
+      canonicalLog: "nuq-fdb/sweeper_lag",
+      queueName: queue.queueName,
+      index,
+      timeBuckets: TIME_BUCKETS,
+      sweepBatch: SWEEP_BATCH,
+      ...stats,
+    },
+  );
 }
 
 // One sweeper services all queues against the same FDB cluster. Each queue
@@ -144,12 +201,15 @@ export class NuqFdbSweeper {
     now: number,
     logger: Logger,
   ): Promise<void> {
+    const startedAt = Date.now();
     const ks = queue.ks;
+    const stats = emptySweepLagStats();
     for (let b = 0; b < TIME_BUCKETS; b++) {
       const r = ks.leaseScanRange(b, now);
       const due = await this.db.doTn(async tn =>
         tn.snapshot().getRangeAll(r.begin, r.end, { limit: SWEEP_BATCH }),
       );
+      addDueKeysToLagStats(stats, ks, due, now);
       for (const [key, value] of due) {
         const id = ks.unpackId(key as Buffer);
         const lease = decodeJson<{ l: string }>(value as Buffer);
@@ -226,8 +286,11 @@ export class NuqFdbSweeper {
             }
           }
         });
+        stats.processedCount++;
       }
     }
+    stats.durationMs = Date.now() - startedAt;
+    logSweepLag(logger, queue, "lease", stats);
   }
 
   // === Backlog timeouts: silently drop pending jobs past their deadline
@@ -237,12 +300,15 @@ export class NuqFdbSweeper {
     now: number,
     logger: Logger,
   ): Promise<void> {
+    const startedAt = Date.now();
     const ks = queue.ks;
+    const stats = emptySweepLagStats();
     for (let b = 0; b < TIME_BUCKETS; b++) {
       const r = ks.backlogTimeoutScanRange(b, now);
       const due = await this.db.doTn(async tn =>
         tn.snapshot().getRangeAll(r.begin, r.end, { limit: SWEEP_BATCH }),
       );
+      addDueKeysToLagStats(stats, ks, due, now);
       for (const [key] of due) {
         const id = ks.unpackId(key as Buffer);
         await this.db.doTn(async tn => {
@@ -274,8 +340,11 @@ export class NuqFdbSweeper {
           }
           deleteJobRecords(tn, ks, id);
         });
+        stats.processedCount++;
       }
     }
+    stats.durationMs = Date.now() - startedAt;
+    logSweepLag(logger, queue, "backlog_timeout", stats);
   }
 
   // === Delayed (crawl delay) promotions
@@ -285,12 +354,15 @@ export class NuqFdbSweeper {
     now: number,
     logger: Logger,
   ): Promise<void> {
+    const startedAt = Date.now();
     const ks = queue.ks;
+    const stats = emptySweepLagStats();
     for (let b = 0; b < TIME_BUCKETS; b++) {
       const r = ks.delayedScanRange(b, now);
       const due = await this.db.doTn(async tn =>
         tn.snapshot().getRangeAll(r.begin, r.end, { limit: SWEEP_BATCH }),
       );
+      addDueKeysToLagStats(stats, ks, due, now);
       for (const [key, value] of due) {
         const e = decodeJson<QueueEntry>(value as Buffer);
         if (!e) continue;
@@ -304,8 +376,11 @@ export class NuqFdbSweeper {
           // the job already holds its crawl slot; admit through the team gate
           await admitThroughTeamGate(tn, ks, e, txc);
         });
+        stats.processedCount++;
       }
     }
+    stats.durationMs = Date.now() - startedAt;
+    logSweepLag(logger, queue, "delay", stats);
   }
 
   // === Group finish detection (backstop for the inline path)
