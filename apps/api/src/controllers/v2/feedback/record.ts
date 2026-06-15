@@ -1,7 +1,6 @@
 import { v7 as uuidv7 } from "uuid";
 import { config } from "../../../config";
 import { logger as _logger } from "../../../lib/logger";
-import { getScrapeZDR, getSearchZDR } from "../../../lib/zdr-helpers";
 import {
   autumnService,
   featureIdForBillingEndpoint,
@@ -27,6 +26,10 @@ import {
 } from "./internal-types";
 import { computeRefundPolicy } from "./refund-policy";
 import { sumCreditsRefundedToday } from "./refund-totals";
+import {
+  shouldSkipPersistenceForForcedZdr,
+  shouldSkipPersistenceForJobZdr,
+} from "./zdr-persistence";
 
 const PREVIEW_TEAM_ID = "3adefd26-77ec-5968-8dcf-c94b5630d1de";
 const POSTGRES_UNIQUE_VIOLATION = "23505";
@@ -58,21 +61,6 @@ function feedbackFailure(
       feedbackErrorCode: code,
     },
   };
-}
-
-function shouldSkipPersistenceForZdr(
-  req: RequestWithAuth<any, any, any>,
-  options: FeedbackRecordOptions,
-): boolean {
-  if (options.skipZdrPersistence === false) return false;
-
-  const searchZDR = getSearchZDR(req.acuc?.flags);
-  return (
-    getScrapeZDR(req.acuc?.flags) !== "disabled" ||
-    searchZDR === "allowed" ||
-    searchZDR === "forced-zdr" ||
-    searchZDR === "forced-anon"
-  );
 }
 
 function zdrFeedbackSuccess(
@@ -259,8 +247,8 @@ export async function recordEndpointFeedback(
     teamId: req.auth.team_id,
   });
 
-  if (shouldSkipPersistenceForZdr(req, options)) {
-    logger.info("Skipping feedback persistence for ZDR team");
+  if (shouldSkipPersistenceForForcedZdr(req, options)) {
+    logger.info("Skipping feedback persistence for forced ZDR team");
     return zdrFeedbackSuccess(options);
   }
 
@@ -272,6 +260,11 @@ export async function recordEndpointFeedback(
   try {
     const jobOrFailure = await lookupJobWithRetry(options, dbTeamId, logger);
     if ("status" in jobOrFailure) return jobOrFailure;
+
+    if (shouldSkipPersistenceForJobZdr(jobOrFailure, options)) {
+      logger.info("Skipping feedback persistence for ZDR job");
+      return zdrFeedbackSuccess(options);
+    }
 
     const jobFailure = validateJob(jobOrFailure, options, logger);
     if (jobFailure) return jobFailure;
