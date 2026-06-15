@@ -14,8 +14,6 @@ export function toFeedbackInput(
     ...("issues" in body ? { issues: body.issues } : {}),
     ...("tags" in body ? { tags: body.tags } : {}),
     ...("note" in body ? { note: body.note } : {}),
-    ...("expected" in body ? { expected: body.expected } : {}),
-    ...("actual" in body ? { actual: body.actual } : {}),
     ...("url" in body ? { url: body.url } : {}),
     ...("pageNumbers" in body ? { pageNumbers: body.pageNumbers } : {}),
     ...("metadata" in body ? { metadata: body.metadata } : {}),

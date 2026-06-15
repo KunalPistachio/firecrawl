@@ -2210,8 +2210,6 @@ export const endpointFeedbackSchema = z
       .optional(),
     missingContent: z.array(missingContentEntrySchema).max(50).optional(),
     querySuggestions: z.string().trim().max(2000).optional(),
-    expected: z.unknown().optional(),
-    actual: z.unknown().optional(),
     url: searchFeedbackUrlSchema.optional(),
     pageNumbers: z.array(z.number().int().positive()).max(100).optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
@@ -2227,15 +2225,13 @@ export const endpointFeedbackSchema = z
         (data.valuableSources?.length ?? 0) > 0 ||
         (data.missingContent?.length ?? 0) > 0 ||
         !!data.querySuggestions ||
-        data.expected !== undefined ||
-        data.actual !== undefined ||
         !!data.url ||
         (data.pageNumbers?.length ?? 0) > 0
       );
     },
     {
       message:
-        "Feedback must include at least one substantive signal: issues, note, sources, missingContent, querySuggestions, expected/actual, url, or pageNumbers.",
+        "Feedback must include at least one substantive signal: issues, note, sources, missingContent, querySuggestions, url, or pageNumbers.",
     },
   )
   .refine(

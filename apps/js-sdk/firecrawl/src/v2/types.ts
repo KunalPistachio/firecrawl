@@ -691,8 +691,6 @@ export interface EndpointFeedbackRequest extends SearchFeedbackRequest {
   issues?: string[];
   tags?: string[];
   note?: string;
-  expected?: unknown;
-  actual?: unknown;
   url?: string;
   pageNumbers?: number[];
   metadata?: Record<string, unknown>;

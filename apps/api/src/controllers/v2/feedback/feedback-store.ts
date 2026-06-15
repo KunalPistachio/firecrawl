@@ -93,8 +93,6 @@ export async function insertFeedback(params: {
       valuable_sources: options.feedback.valuableSources ?? [],
       missing_content: options.feedback.missingContent ?? [],
       query_suggestions: options.feedback.querySuggestions ?? null,
-      expected: options.feedback.expected ?? null,
-      actual: options.feedback.actual ?? null,
       metadata: feedbackMetadata(options),
       job_status: job.is_successful === false ? "failed" : "completed",
       credits_billed: job.credits_cost ?? 0,

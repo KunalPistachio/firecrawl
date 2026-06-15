@@ -16,8 +16,6 @@ export type FeedbackInput = {
   valuableSources?: Array<{ url: string; reason?: string }>;
   missingContent?: Array<{ topic: string; description?: string }>;
   querySuggestions?: string;
-  expected?: unknown;
-  actual?: unknown;
   url?: string;
   pageNumbers?: number[];
   metadata?: Record<string, unknown>;

@@ -3232,7 +3232,7 @@
           },
           {
             "type": "object",
-            "description": "Submit feedback for a v2 job. Include at least one substantive signal such as issues, note, valuableSources, missingContent, querySuggestions, expected/actual, url, or pageNumbers.",
+            "description": "Submit feedback for a v2 job. Include at least one substantive signal such as issues, note, valuableSources, missingContent, querySuggestions, url, or pageNumbers.",
             "properties": {
               "endpoint": {
                 "type": "string",
@@ -3264,8 +3264,6 @@
                 "type": "string",
                 "maxLength": 4000
               },
-              "expected": {},
-              "actual": {},
               "url": {
                 "type": "string",
                 "format": "uri"
