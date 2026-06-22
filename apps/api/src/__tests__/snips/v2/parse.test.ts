@@ -5,6 +5,7 @@ import {
   TEST_PRODUCTION,
   TEST_SUITE_WEBSITE,
 } from "../lib";
+import crypto from "node:crypto";
 import request, {
   idmux,
   Identity,
@@ -35,6 +36,71 @@ let identity: Identity;
 let pdfFixture: Buffer | null = null;
 const originalParseUploadStorageDriver = config.PARSE_UPLOAD_STORAGE_DRIVER;
 const originalEnv = config.ENV;
+
+function enableLocalUploadRefAdapter() {
+  (config as any).ENV = "test";
+  (config as any).PARSE_UPLOAD_STORAGE_DRIVER = "local";
+}
+
+async function mintLocalUploadRef(
+  owner: Identity,
+  filename = "upload-ref.html",
+  contentType = "text/html",
+) {
+  enableLocalUploadRefAdapter();
+
+  const init = await request(TEST_API_URL)
+    .post("/v2/parse/upload-url")
+    .set("Authorization", `Bearer ${owner.apiKey}`)
+    .set("Content-Type", "application/json")
+    .send({
+      filename,
+      contentType,
+    });
+
+  expect(init.statusCode).toBe(200);
+  expect(init.body.success).toBe(true);
+  expect(init.body.data.uploadRef).toEqual(expect.any(String));
+  return init.body.data.uploadRef as string;
+}
+
+function getLocalUploadRefSecret() {
+  return (
+    config.PARSE_UPLOAD_REF_SECRET ??
+    config.BULL_AUTH_KEY ??
+    "development-parse-upload-ref-secret"
+  );
+}
+
+function resignUploadRefPayload(payload: Record<string, unknown>) {
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString(
+    "base64url",
+  );
+  const signature = crypto
+    .createHmac("sha256", getLocalUploadRefSecret())
+    .update(encodedPayload)
+    .digest("base64url");
+
+  return `${encodedPayload}.${signature}`;
+}
+
+function withUploadRefPayload(
+  uploadRef: string,
+  mutate: (payload: Record<string, any>) => void,
+) {
+  const [encodedPayload] = uploadRef.split(".");
+  const payload = JSON.parse(
+    Buffer.from(encodedPayload, "base64url").toString("utf8"),
+  );
+  mutate(payload);
+  return resignUploadRefPayload(payload);
+}
+
+function tamperUploadRefSignature(uploadRef: string) {
+  const [encodedPayload, signature] = uploadRef.split(".");
+  const replacement = signature.endsWith("A") ? "B" : "A";
+  return `${encodedPayload}.${signature.slice(0, -1)}${replacement}`;
+}
 
 async function waitForSingleRow<T>(
   fetcher: () => Promise<T | null>,
@@ -97,8 +163,7 @@ describe("/v2/parse", () => {
   it(
     "parses an upload-ref HTML file into markdown",
     async () => {
-      (config as any).ENV = "test";
-      (config as any).PARSE_UPLOAD_STORAGE_DRIVER = "local";
+      enableLocalUploadRefAdapter();
 
       const init = await request(TEST_API_URL)
         .post("/v2/parse/upload-url")
@@ -142,8 +207,7 @@ describe("/v2/parse", () => {
   it(
     "rejects oversized declared upload-ref sizes before signing",
     async () => {
-      (config as any).ENV = "test";
-      (config as any).PARSE_UPLOAD_STORAGE_DRIVER = "local";
+      enableLocalUploadRefAdapter();
 
       const failure = await request(TEST_API_URL)
         .post("/v2/parse/upload-url")
@@ -164,8 +228,7 @@ describe("/v2/parse", () => {
   it(
     "rejects upload-ref signing without authentication",
     async () => {
-      (config as any).ENV = "test";
-      (config as any).PARSE_UPLOAD_STORAGE_DRIVER = "local";
+      enableLocalUploadRefAdapter();
 
       const failure = await request(TEST_API_URL)
         .post("/v2/parse/upload-url")
@@ -182,10 +245,90 @@ describe("/v2/parse", () => {
   );
 
   it(
+    "rejects upload refs owned by another team",
+    async () => {
+      if (!config.IDMUX_URL) {
+        console.warn(
+          "Skipping uploadRef cross-team test because IDMUX_URL is not set",
+        );
+        return;
+      }
+
+      const otherIdentity = await idmux({
+        name: "parse-upload-ref-other-team",
+        concurrency: 100,
+        credits: 1000000,
+      });
+      expect(otherIdentity.teamId).not.toBe(identity.teamId);
+
+      const uploadRef = await mintLocalUploadRef(identity);
+      const failure = await request(TEST_API_URL)
+        .post("/v2/parse")
+        .set("Authorization", `Bearer ${otherIdentity.apiKey}`)
+        .set("Content-Type", "application/json")
+        .send({
+          uploadRef,
+          formats: ["markdown"],
+          zeroDataRetention: true,
+        });
+
+      expect(failure.statusCode).toBe(403);
+      expect(failure.body.success).toBe(false);
+      expect(failure.body.error).toMatch(/authenticated team/i);
+    },
+    scrapeTimeout,
+  );
+
+  it(
+    "rejects tampered upload refs",
+    async () => {
+      const uploadRef = await mintLocalUploadRef(identity);
+      const failure = await request(TEST_API_URL)
+        .post("/v2/parse")
+        .set("Authorization", `Bearer ${identity.apiKey}`)
+        .set("Content-Type", "application/json")
+        .send({
+          uploadRef: tamperUploadRefSignature(uploadRef),
+          formats: ["markdown"],
+          zeroDataRetention: true,
+        });
+
+      expect(failure.statusCode).toBe(400);
+      expect(failure.body.success).toBe(false);
+      expect(failure.body.error).toMatch(/signature/i);
+    },
+    scrapeTimeout,
+  );
+
+  it(
+    "rejects expired upload refs",
+    async () => {
+      const uploadRef = await mintLocalUploadRef(identity);
+      const expiredUploadRef = withUploadRefPayload(uploadRef, payload => {
+        payload.expiresAt = Date.now() - 1000;
+      });
+
+      const failure = await request(TEST_API_URL)
+        .post("/v2/parse")
+        .set("Authorization", `Bearer ${identity.apiKey}`)
+        .set("Content-Type", "application/json")
+        .send({
+          uploadRef: expiredUploadRef,
+          formats: ["markdown"],
+          zeroDataRetention: true,
+        });
+
+      expect(failure.statusCode).toBe(400);
+      expect(failure.body.success).toBe(false);
+      expect(failure.body.error).toMatch(/expired/i);
+    },
+    scrapeTimeout,
+  );
+
+  it(
     "mints upload refs for xhtml files accepted by parse",
     async () => {
-      (config as any).ENV = "test";
-      (config as any).PARSE_UPLOAD_STORAGE_DRIVER = "local";
+      enableLocalUploadRefAdapter();
 
       const init = await request(TEST_API_URL)
         .post("/v2/parse/upload-url")
