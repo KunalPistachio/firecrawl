@@ -73,13 +73,7 @@ function isLocalUploadAdapterAllowed() {
 }
 
 function getEffectiveRefSecret(): string | null {
-  if (!isLocalUploadAdapterAllowed())
-    return config.PARSE_UPLOAD_REF_SECRET ?? null;
-  return (
-    config.PARSE_UPLOAD_REF_SECRET ??
-    config.BULL_AUTH_KEY ??
-    "development-parse-upload-ref-secret"
-  );
+  return config.PARSE_UPLOAD_REF_SECRET ?? null;
 }
 
 function base64UrlEncode(input: Buffer | string): string {

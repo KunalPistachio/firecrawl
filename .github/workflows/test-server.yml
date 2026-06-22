@@ -70,7 +70,6 @@ jobs:
       # not test-process mutations.
       ENV: test
       PARSE_UPLOAD_STORAGE_DRIVER: local
-      PARSE_UPLOAD_REF_SECRET: parse-upload-ref-ci-secret
       PARSE_UPLOAD_REF_TEST_REQUIRED: true
       IDMUX_URL: ${{ secrets.IDMUX_URL }}
     steps:
@@ -232,6 +231,9 @@ jobs:
           pnpm preview --port 4321 --strictPort --host 127.0.0.1 > test-site.log 2>&1 &
           pnpx wait-on tcp:4321 -t 20s
         working-directory: apps/test-site
+
+      - name: Generate parse upload ref secret
+        run: echo "PARSE_UPLOAD_REF_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
 
       - name: Start playwright
         if: matrix.engine == 'playwright'

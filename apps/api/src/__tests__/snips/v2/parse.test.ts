@@ -111,11 +111,12 @@ async function uploadToMintedTarget(
 }
 
 function getLocalUploadRefSecret() {
-  return (
-    config.PARSE_UPLOAD_REF_SECRET ??
-    config.BULL_AUTH_KEY ??
-    "development-parse-upload-ref-secret"
-  );
+  if (!config.PARSE_UPLOAD_REF_SECRET) {
+    throw new Error(
+      "PARSE_UPLOAD_REF_SECRET is required for uploadRef test signing",
+    );
+  }
+  return config.PARSE_UPLOAD_REF_SECRET;
 }
 
 function resignUploadRefPayload(payload: Record<string, unknown>) {
