@@ -16,6 +16,7 @@ import {
 } from "../controllers/v2/parse";
 import {
   parseLocalUploadController,
+  parseLocalUploadStorageGuard,
   parseUploadRefPayloadMiddleware,
   parseUploadUrlController,
 } from "../controllers/v2/parse-upload";
@@ -296,6 +297,7 @@ v2Router.post(
 
 v2Router.put(
   "/parse/upload/:uploadId",
+  parseLocalUploadStorageGuard,
   express.raw({ type: "*/*", limit: "50mb" }),
   wrap(parseLocalUploadController),
 );
@@ -304,8 +306,8 @@ v2Router.post(
   "/parse",
   authMiddleware(RateLimiterMode.Scrape, { allowKeyless: true }),
   countryCheck,
-  parsePayloadMiddleware,
   checkCreditsMiddleware(1),
+  parsePayloadMiddleware,
   wrap(parseController),
 );
 

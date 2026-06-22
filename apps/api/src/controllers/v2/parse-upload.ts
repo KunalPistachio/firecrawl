@@ -362,6 +362,22 @@ export async function parseLocalUploadController(req: Request, res: Response) {
   return res.status(200).json({ success: true });
 }
 
+export function parseLocalUploadStorageGuard(
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  if (!isLocalUploadAdapterAllowed() || getParseUploadDriver() !== "local") {
+    return res.status(404).json({
+      success: false,
+      code: "NOT_FOUND",
+      error: "Local parse upload storage is disabled.",
+    });
+  }
+
+  next();
+}
+
 async function resolveUploadRef(payload: ParseUploadRefPayload): Promise<{
   file: UploadedParseFile;
   cleanup: () => Promise<void>;
