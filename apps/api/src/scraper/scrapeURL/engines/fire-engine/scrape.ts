@@ -7,7 +7,6 @@ import { MockState } from "../../lib/mock";
 import { getDocFromGCS } from "../../../../lib/gcs-jobs";
 import {
   ActionError,
-  AddFeatureError,
   DNSResolutionError,
   EngineError,
   FEPageLoadFailed,
@@ -15,6 +14,7 @@ import {
   SSLError,
   SiteError,
   UnsupportedFileError,
+  EnhancedProxyRequiredError,
 } from "../../error";
 import { Meta } from "../..";
 
@@ -240,7 +240,7 @@ export async function fireEngineScrape<
       logger.info(
         "Scrape signaled retryWithStealth. Adding stealthProxy flag.",
       );
-      throw new AddFeatureError(["stealthProxy"]);
+      throw new EnhancedProxyRequiredError();
     }
     if (
       typeof status.error === "string" &&

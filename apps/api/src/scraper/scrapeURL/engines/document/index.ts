@@ -105,14 +105,33 @@ function isValidDocumentContentType(contentType: string | null): boolean {
   return validTypes.some(type => ct.includes(type));
 }
 
-export async function scrapeDocument(meta: Meta): Promise<EngineScrapeResult> {
+export async function scrapeDocument(
+  meta: Meta,
+  sourceResult?: EngineScrapeResult,
+): Promise<EngineScrapeResult> {
   let response: Response;
   let buffer: Buffer;
   let proxyUsed: "basic" | "stealth" = "basic";
   let tempFilePath: string | null = null;
 
   try {
-    if (meta.documentPrefetch !== undefined && meta.documentPrefetch !== null) {
+    if (sourceResult?.bodyBuffer) {
+      const headers = new Headers();
+      if (sourceResult.contentType) {
+        headers.set("Content-Type", sourceResult.contentType);
+      }
+
+      response = {
+        url: sourceResult.url,
+        status: sourceResult.statusCode,
+        headers,
+      } as Response;
+      buffer = sourceResult.bodyBuffer;
+      proxyUsed = sourceResult.proxyUsed;
+    } else if (
+      meta.documentPrefetch !== undefined &&
+      meta.documentPrefetch !== null
+    ) {
       // Use prefetched document
       tempFilePath = meta.documentPrefetch.filePath;
       buffer = await readFile(tempFilePath);

@@ -19,7 +19,6 @@ import {
   Engine,
   EngineScrapeResult,
   FeatureFlag,
-  getEngineMaxReasonableTime,
   scrapeURLWithEngine,
   shouldUseIndex,
 } from "./engines";
@@ -47,13 +46,12 @@ import {
   PDFPrefetchFailed,
   DocumentPrefetchFailed,
   FEPageLoadFailed,
-  EngineSnipedError,
-  WaterfallNextEngineSignal,
   EngineUnsuccessfulError,
   ProxySelectionError,
   ScrapeRetryLimitError,
   BrandingNotSupportedError,
   XTwitterConfigurationError,
+  EnhancedProxyRequiredError,
 } from "./error";
 import { ScrapeRetryTracker } from "./retryTracker";
 import { executeTransformers } from "./transformers";
@@ -87,6 +85,10 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { detectSpecialtyFileType } from "./engines/utils/specialtyHandler";
+import { isPdfBuffer } from "./engines/pdf/pdfUtils";
+import { scrapePDF } from "./engines/pdf";
+import { scrapeDocument } from "./engines/document";
 
 export type ScrapeUrlResponse =
   | {
@@ -384,6 +386,13 @@ async function buildMetaObject(
         proxyUsed: "basic",
         contentType: contentType || "application/pdf",
       };
+      fetchPrefetch = {
+        url: prefetchUrl,
+        status: 200,
+        bodyBuffer: buffer,
+        proxyUsed: "basic",
+        contentType: contentType || "application/pdf",
+      };
     } else if (isDocumentUpload(filename, contentType)) {
       const ext = path.extname(filename).toLowerCase();
       const fallbackExtension =
@@ -397,6 +406,15 @@ async function buildMetaObject(
         filePath,
         status: 200,
         url: prefetchUrl,
+        proxyUsed: "basic",
+        contentType:
+          contentType ||
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      };
+      fetchPrefetch = {
+        url: prefetchUrl,
+        status: 200,
+        bodyBuffer: buffer,
         proxyUsed: "basic",
         contentType:
           contentType ||
@@ -500,7 +518,7 @@ const MAX_HTML_SIZE_FOR_MARKDOWN_CHECK = 300 * 1024; // 300KB
 async function scrapeURLLoopIter(
   meta: Meta,
   engine: Engine,
-  snipeAbort,
+  snipeAbort?: AbortInstance,
 ): Promise<EngineScrapeResult> {
   const abort = meta.abort.child(snipeAbort);
   try {
@@ -511,6 +529,14 @@ async function scrapeURLLoopIter(
       },
       engine,
     );
+
+    if (getSpecialtyFileType(meta, engineResult) !== null) {
+      meta.logger.info("Scrape via " + engine + " returned specialty file.", {
+        contentType: engineResult.contentType,
+        statusCode: engineResult.statusCode,
+      });
+      return engineResult;
+    }
 
     const hasMarkdown = hasFormatOfType(meta.options.formats, "markdown");
     const hasChangeTracking = hasFormatOfType(
@@ -601,7 +627,7 @@ async function scrapeURLLoopIter(
           length: engineResult.html?.trim().length ?? 0,
         },
       );
-      throw new AddFeatureError(["stealthProxy"]);
+      throw new EnhancedProxyRequiredError();
     }
 
     // NOTE: TODO: what to do when status code is bad is tough...
@@ -624,16 +650,110 @@ async function scrapeURLLoopIter(
   }
 }
 
-class WrappedEngineError extends Error {
-  name = "WrappedEngineError";
-  public engine: Engine;
-  public error: any;
-
-  constructor(engine: Engine, error: any) {
-    super("WrappedEngineError");
-    this.engine = engine;
-    this.error = error;
+function getSpecialtyFileType(
+  meta: Meta,
+  engineResult: EngineScrapeResult,
+): "pdf" | "document" | null {
+  const detectedFromContentType = detectSpecialtyFileType(
+    engineResult.contentType?.toLowerCase(),
+  );
+  if (detectedFromContentType !== null) {
+    return detectedFromContentType;
   }
+
+  if (engineResult.bodyBuffer && isPdfBuffer(engineResult.bodyBuffer)) {
+    return "pdf";
+  }
+
+  if (meta.featureFlags.has("document")) {
+    return "document";
+  }
+
+  if (meta.featureFlags.has("pdf")) {
+    return "pdf";
+  }
+
+  return null;
+}
+
+async function runSpecialtyProcessor(
+  meta: Meta,
+  engineResult: EngineScrapeResult,
+): Promise<EngineScrapeResult> {
+  const specialtyType = getSpecialtyFileType(meta, engineResult);
+  if (specialtyType === "pdf") {
+    return await scrapePDF(
+      {
+        ...meta,
+        logger: meta.logger.child({ method: "postprocessors/pdf" }),
+      },
+      engineResult,
+    );
+  }
+  if (specialtyType === "document") {
+    return await scrapeDocument(
+      {
+        ...meta,
+        logger: meta.logger.child({ method: "postprocessors/document" }),
+      },
+      engineResult,
+    );
+  }
+  return engineResult;
+}
+
+function isIndexEngine(engine: Engine): boolean {
+  return engine === "index" || engine === "index;documents";
+}
+
+function isLegacySpecialtyEngine(engine: Engine): boolean {
+  return engine === "pdf" || engine === "document";
+}
+
+function getEnhancedEngine(engine: Engine): Engine | null {
+  switch (engine) {
+    case "fire-engine;chrome-cdp":
+      return "fire-engine;chrome-cdp;stealth";
+    case "fire-engine(retry);chrome-cdp":
+      return "fire-engine(retry);chrome-cdp;stealth";
+    case "fire-engine;tlsclient":
+      return "fire-engine;tlsclient;stealth";
+    default:
+      return null;
+  }
+}
+
+function selectMainEngine(
+  fallbackList: {
+    engine: Engine;
+    unsupportedFeatures: Set<FeatureFlag>;
+  }[],
+): {
+  engine: Engine;
+  unsupportedFeatures: Set<FeatureFlag>;
+} | null {
+  const mainCandidates = fallbackList.filter(
+    x => !isIndexEngine(x.engine) && !isLegacySpecialtyEngine(x.engine),
+  );
+
+  const preferredOrder: Engine[] = [
+    "x-twitter",
+    "wikipedia",
+    "fire-engine;chrome-cdp",
+    "playwright",
+    "fetch",
+    "fire-engine;tlsclient",
+    "fire-engine(retry);chrome-cdp",
+  ];
+
+  for (const engine of preferredOrder) {
+    const candidate = mainCandidates.find(x => x.engine === engine);
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return mainCandidates[0] ?? null;
 }
 
 async function scrapeURLLoop(meta: Meta): Promise<ScrapeUrlResponse> {
@@ -692,231 +812,90 @@ async function scrapeURLLoop(meta: Meta): Promise<ScrapeUrlResponse> {
       "engine.fallback_list": fallbackList.map(f => f.engine).join(","),
     });
 
-    const snipeAbortController = new AbortController();
-    const snipeAbort: AbortInstance = {
-      signal: snipeAbortController.signal,
-      tier: "engine",
-      throwable() {
-        return new EngineSnipedError();
-      },
-    };
-
-    type EngineBundlePromise = {
-      engine: Engine;
-      unsupportedFeatures: Set<FeatureFlag>;
-      promise: Promise<EngineScrapeResultWithContext>;
-    };
-
-    const remainingEngines = [...fallbackList];
-    let enginePromises: EngineBundlePromise[] = [];
     const enginesAttempted: string[] = [];
-
     meta.abort.throwIfAborted();
-
     let result: EngineScrapeResultWithContext | null = null;
 
-    while (remainingEngines.length > 0) {
-      const { engine, unsupportedFeatures } = remainingEngines.shift()!;
+    for (const { engine, unsupportedFeatures } of fallbackList.filter(x =>
+      isIndexEngine(x.engine),
+    )) {
       enginesAttempted.push(engine);
-
-      const waitUntilWaterfall =
-        getEngineMaxReasonableTime(meta, engine) +
-        config.SCRAPEURL_ENGINE_WATERFALL_DELAY_MS;
-
-      if (
-        !isFinite(waitUntilWaterfall) ||
-        isNaN(waitUntilWaterfall) ||
-        waitUntilWaterfall <= 0
-      ) {
-        meta.logger.warn("Invalid waitUntilWaterfall value", {
-          waitUntilWaterfall,
-          timeout: meta.options.timeout,
-          actions: !!meta.options.actions,
-          hasJson: !!meta.options.formats?.find(x => x.type === "json"),
-          remainingEngines: remainingEngines.length,
-        });
-      }
-
-      meta.logger.info("Scraping via " + engine + "...", {
-        waitUntilWaterfall,
-      });
-
-      enginePromises.push({
-        engine,
-        unsupportedFeatures,
-        promise: (async () => {
-          try {
-            return {
-              engine,
-              unsupportedFeatures,
-              result: await scrapeURLLoopIter(meta, engine, snipeAbort),
-            };
-          } catch (error) {
-            throw new WrappedEngineError(engine, error);
-          }
-        })(),
-      });
-
-      while (true) {
-        let timeouts: NodeJS.Timeout[] = [];
-        try {
-          result = await Promise.race([
-            ...enginePromises.map(x => x.promise),
-            ...(remainingEngines.length > 0
-              ? [
-                  new Promise<EngineScrapeResultWithContext>((_, reject) => {
-                    timeouts.push(
-                      setTimeout(() => {
-                        reject(new WaterfallNextEngineSignal());
-                      }, waitUntilWaterfall),
-                    );
-                  }),
-                ]
-              : []),
-            new Promise<EngineScrapeResultWithContext>((_, reject) => {
-              timeouts.push(
-                setTimeout(() => {
-                  try {
-                    meta.abort.throwIfAborted();
-
-                    // Fallback error if above doesn't throw
-                    const usingDefaultTimeout =
-                      meta.abort.scrapeTimeout() === undefined;
-                    throw new ScrapeJobTimeoutError(
-                      usingDefaultTimeout
-                        ? "Scrape timed out due to maximum length of 5 minutes"
-                        : "Scrape timed out",
-                    );
-                  } catch (error) {
-                    reject(error);
-                  }
-                }, meta.abort.scrapeTimeout() ?? 300000),
-              );
-            }),
-          ]);
-          break;
-        } catch (error) {
-          if (error instanceof WrappedEngineError) {
-            if (error.engine === "x-twitter") {
-              meta.logger.warn("X/Twitter scrape failed fatally.", {
-                error: error.error,
-              });
-              throw error.error;
-            } else if (error.error instanceof EngineError) {
-              meta.logger.warn(
-                "Engine " + error.engine + " could not scrape the page.",
-                {
-                  error: error.error,
-                },
-              );
-            } else if (error.error instanceof IndexMissError) {
-              meta.logger.warn(
-                "Engine " +
-                  error.engine +
-                  " could not find the page in the index.",
-                {
-                  error: error.error,
-                },
-              );
-            } else if (
-              error.error instanceof AddFeatureError ||
-              error.error instanceof RemoveFeatureError ||
-              error.error instanceof SiteError ||
-              error.error instanceof SSLError ||
-              error.error instanceof DNSResolutionError ||
-              error.error instanceof ActionError ||
-              error.error instanceof UnsupportedFileError ||
-              error.error instanceof PDFAntibotError ||
-              error.error instanceof PDFOCRRequiredError ||
-              error.error instanceof DocumentAntibotError ||
-              error.error instanceof PDFInsufficientTimeError ||
-              error.error instanceof ProxySelectionError ||
-              error.error instanceof NoCachedDataError ||
-              error.error instanceof AgentIndexOnlyError ||
-              error.error instanceof XTwitterConfigurationError
-            ) {
-              throw error.error;
-            } else if (error.error instanceof LLMRefusalError) {
-              meta.logger.warn("LLM refusal encountered", {
-                error: error.error,
-              });
-              throw error.error;
-            } else if (error.error instanceof FEPageLoadFailed) {
-              // This is the internal timeout bug on f-e and should be treated as an EngineError.
-              meta.logger.warn("FEPageLoadFailed encountered", {
-                error: error.error,
-              });
-            } else if (error.error instanceof AbortManagerThrownError) {
-              if (error.error.tier === "engine") {
-                meta.logger.warn(
-                  "Engine " + error.engine + " timed out while scraping.",
-                  { error: error.error },
-                );
-              } else {
-                throw error.error;
-              }
-            } else {
-              meta.logger.warn(
-                "An unexpected error happened while scraping with " +
-                  error.engine +
-                  ".",
-                { error },
-              );
-            }
-
-            // Filter out the failed engine
-            enginePromises = enginePromises.filter(
-              x => x.engine !== error.engine,
-            );
-
-            // If we don't have any engines waterfalled, let's waterfall the next engine
-            if (enginePromises.length === 0) {
-              break;
-            }
-
-            // Otherwise, just keep racing
-          } else if (
-            error instanceof AddFeatureError ||
-            error instanceof RemoveFeatureError
-          ) {
-            throw error;
-          } else if (error instanceof WaterfallNextEngineSignal) {
-            // It's time to waterfall the next engine
-            break;
-          } else if (error instanceof ScrapeJobTimeoutError) {
-            throw error;
-          } else if (error instanceof AbortManagerThrownError) {
-            if (error.tier === "engine") {
-              meta.logger.warn(
-                "Engine-scoped timeout error received here. Weird!",
-                { error },
-              );
-            }
-
-            throw error;
-          } else {
-            meta.logger.warn("Unexpected error while racing engines", {
-              error,
-            });
-            throw error;
-          }
-        } finally {
-          for (const to of timeouts) {
-            clearTimeout(to);
-          }
-        }
-      }
-
-      if (result === null) {
-        meta.logger.info("Waterfalling to next engine...", {
-          waitUntilWaterfall,
-        });
-      } else {
+      meta.logger.info("Scraping via index preprocessor " + engine + "...");
+      try {
+        result = {
+          engine,
+          unsupportedFeatures,
+          result: await scrapeURLLoopIter(meta, engine),
+        };
         break;
+      } catch (error) {
+        if (error instanceof IndexMissError || error instanceof EngineError) {
+          meta.logger.info("Index preprocessor missed.", { engine, error });
+          continue;
+        }
+        throw error;
       }
     }
 
-    snipeAbortController.abort();
+    if (result === null) {
+      const mainEngine = selectMainEngine(fallbackList);
+      if (mainEngine === null) {
+        setSpanAttributes(span, {
+          "engine.no_engines_left": true,
+          "engine.engines_attempted": enginesAttempted.join(","),
+        });
+        if (meta.options.lockdown) {
+          throw new LockdownMissError();
+        }
+        throw new NoEnginesLeftError(fallbackList.map(x => x.engine));
+      }
+
+      const runMainEngine = async (
+        engine: Engine,
+        unsupportedFeatures: Set<FeatureFlag>,
+      ): Promise<EngineScrapeResultWithContext> => {
+        enginesAttempted.push(engine);
+        meta.logger.info("Scraping via main engine " + engine + "...");
+        return {
+          engine,
+          unsupportedFeatures,
+          result: await scrapeURLLoopIter(meta, engine),
+        };
+      };
+
+      try {
+        result = await runMainEngine(
+          mainEngine.engine,
+          mainEngine.unsupportedFeatures,
+        );
+      } catch (error) {
+        if (error instanceof EnhancedProxyRequiredError) {
+          const enhancedEngine = getEnhancedEngine(mainEngine.engine);
+          if (enhancedEngine === null) {
+            throw error;
+          }
+
+          meta.logger.info("Retrying main engine with enhanced proxy.", {
+            engine: mainEngine.engine,
+            enhancedEngine,
+          });
+          meta.featureFlags = new Set([...meta.featureFlags, "stealthProxy"]);
+          result = await runMainEngine(enhancedEngine, new Set());
+        } else if (
+          error instanceof EngineUnsuccessfulError ||
+          error instanceof EngineError ||
+          error instanceof FEPageLoadFailed
+        ) {
+          setSpanAttributes(span, {
+            "engine.no_engines_left": true,
+            "engine.engines_attempted": enginesAttempted.join(","),
+          });
+          throw new NoEnginesLeftError(fallbackList.map(x => x.engine));
+        } else {
+          throw error;
+        }
+      }
+    }
 
     if (result === null) {
       setSpanAttributes(span, {
@@ -940,7 +919,10 @@ async function scrapeURLLoop(meta: Meta): Promise<ScrapeUrlResponse> {
     });
 
     meta.winnerEngine = result.engine;
-    let engineResult: EngineScrapeResult = result.result;
+    let engineResult: EngineScrapeResult = await runSpecialtyProcessor(
+      meta,
+      result.result,
+    );
     meta.audioCookies = (
       engineResult as { audioCookies?: BrowserCookie[] }
     ).audioCookies;

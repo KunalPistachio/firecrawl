@@ -5,7 +5,6 @@ import { z } from "zod";
 import { robustFetch } from "../../lib/fetch";
 import {
   ActionError,
-  AddFeatureError,
   EngineError,
   SiteError,
   SSLError,
@@ -13,6 +12,7 @@ import {
   DNSResolutionError,
   FEPageLoadFailed,
   ProxySelectionError,
+  EnhancedProxyRequiredError,
 } from "../../error";
 import { MockState } from "../../lib/mock";
 import { fireEngineURL } from "./scrape";
@@ -202,7 +202,7 @@ export async function fireEngineCheckStatus(
         "Scrape job signaled retryWithStealth. Adding stealthProxy flag.",
         { jobId },
       );
-      throw new AddFeatureError(["stealthProxy"]);
+      throw new EnhancedProxyRequiredError();
     }
     if (
       typeof status.error === "string" &&

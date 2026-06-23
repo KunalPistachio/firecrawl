@@ -11,7 +11,10 @@ import {
   RemoveFeatureError,
   EngineUnsuccessfulError,
 } from "../../error";
-import { open, readFile, unlink } from "node:fs/promises";
+import { open, readFile, unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
 import type { Response } from "undici";
 import { AbortManagerThrownError } from "../../lib/abortManager";
 import {
@@ -54,13 +57,28 @@ function getIneligibleReason(
   return null;
 }
 
-export async function scrapePDF(meta: Meta): Promise<EngineScrapeResult> {
+export async function scrapePDF(
+  meta: Meta,
+  sourceResult?: EngineScrapeResult,
+): Promise<EngineScrapeResult> {
   const shouldParse = shouldParsePDF(meta.options.parsers);
   const maxPages = getPDFMaxPages(meta.options.parsers);
   const mode: PDFMode = getPDFMode(meta.options.parsers);
 
   if (!shouldParse) {
-    if (meta.pdfPrefetch !== undefined && meta.pdfPrefetch !== null) {
+    if (sourceResult?.bodyBuffer) {
+      const content = sourceResult.bodyBuffer.toString("base64");
+      return {
+        url: sourceResult.url,
+        statusCode: sourceResult.statusCode,
+
+        html: content,
+        markdown: content,
+
+        contentType: sourceResult.contentType ?? "application/pdf",
+        proxyUsed: sourceResult.proxyUsed,
+      };
+    } else if (meta.pdfPrefetch !== undefined && meta.pdfPrefetch !== null) {
       const content = (await readFile(meta.pdfPrefetch.filePath)).toString(
         "base64",
       );
@@ -113,19 +131,49 @@ export async function scrapePDF(meta: Meta): Promise<EngineScrapeResult> {
     }
   }
 
+  let shouldCleanupTempFile = true;
   const { response, tempFilePath } =
-    meta.pdfPrefetch !== undefined && meta.pdfPrefetch !== null
-      ? { response: meta.pdfPrefetch, tempFilePath: meta.pdfPrefetch.filePath }
-      : await downloadFile(
-          meta.id,
-          meta.rewrittenUrl ?? meta.url,
-          meta.options.skipTlsVerification,
-          {
-            headers: meta.options.headers,
-            signal: meta.abort.asSignal(),
-          },
-          PDF_DOWNLOAD_MAX_FILE_SIZE,
-        );
+    sourceResult?.binaryFilePath !== undefined
+      ? (() => {
+          shouldCleanupTempFile = false;
+          return {
+            response: {
+              url: sourceResult.url,
+              status: sourceResult.statusCode,
+            },
+            tempFilePath: sourceResult.binaryFilePath,
+          };
+        })()
+      : sourceResult?.bodyBuffer !== undefined
+        ? await (async (bodyBuffer: Buffer) => {
+            const tempFilePath = path.join(
+              tmpdir(),
+              `tempFile-${meta.id}-${randomUUID()}.pdf`,
+            );
+            await writeFile(tempFilePath, bodyBuffer);
+            return {
+              response: {
+                url: sourceResult.url,
+                status: sourceResult.statusCode,
+              },
+              tempFilePath,
+            };
+          })(sourceResult.bodyBuffer)
+        : meta.pdfPrefetch !== undefined && meta.pdfPrefetch !== null
+          ? {
+              response: meta.pdfPrefetch,
+              tempFilePath: meta.pdfPrefetch.filePath,
+            }
+          : await downloadFile(
+              meta.id,
+              meta.rewrittenUrl ?? meta.url,
+              meta.options.skipTlsVerification,
+              {
+                headers: meta.options.headers,
+                signal: meta.abort.asSignal(),
+              },
+              PDF_DOWNLOAD_MAX_FILE_SIZE,
+            );
 
   try {
     // Validate the downloaded file is actually a PDF by checking magic bytes
@@ -614,14 +662,16 @@ export async function scrapePDF(meta: Meta): Promise<EngineScrapeResult> {
     };
   } finally {
     // Always clean up temp file after we're done with it
-    try {
-      await unlink(tempFilePath);
-    } catch (error) {
-      // Ignore errors when cleaning up temp files
-      meta.logger?.warn("Failed to clean up temporary PDF file", {
-        error,
-        tempFilePath,
-      });
+    if (shouldCleanupTempFile) {
+      try {
+        await unlink(tempFilePath);
+      } catch (error) {
+        // Ignore errors when cleaning up temp files
+        meta.logger?.warn("Failed to clean up temporary PDF file", {
+          error,
+          tempFilePath,
+        });
+      }
     }
   }
 }

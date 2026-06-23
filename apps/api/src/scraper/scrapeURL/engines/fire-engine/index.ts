@@ -211,7 +211,6 @@ async function performFireEngineScrape<
 
     if (status.file) {
       const content = status.file.content;
-      delete status.file;
       status.content = Buffer.from(content, "base64").toString("utf8"); // TODO: handle other encodings via Content-Type tag
     }
 
@@ -442,6 +441,9 @@ export async function scrapeURLWithFireEngineChromeCDP(
       url: response.url ?? meta.url,
 
       html: response.content,
+      bodyBuffer: response.file?.content
+        ? Buffer.from(response.file.content, "base64")
+        : undefined,
       error: response.pageError,
       statusCode: response.pageStatusCode,
 
@@ -527,6 +529,9 @@ export async function scrapeURLWithFireEngineTLSClient(
       url: response.url ?? meta.url,
 
       html: response.content,
+      bodyBuffer: response.file?.content
+        ? Buffer.from(response.file.content, "base64")
+        : undefined,
       error: response.pageError,
       statusCode: response.pageStatusCode,
 

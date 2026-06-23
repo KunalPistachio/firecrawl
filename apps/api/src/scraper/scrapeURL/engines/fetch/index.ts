@@ -99,6 +99,7 @@ export async function scrapeURLWithFetch(
   let response: {
     url: string;
     body: string;
+    bodyBuffer: Buffer;
     status: number;
     headers: [string, string][];
   };
@@ -127,6 +128,7 @@ export async function scrapeURLWithFetch(
     response = {
       url: meta.fetchPrefetch.url ?? meta.rewrittenUrl ?? meta.url,
       body: text,
+      bodyBuffer: meta.fetchPrefetch.bodyBuffer,
       status: meta.fetchPrefetch.status,
       headers: meta.fetchPrefetch.contentType
         ? [["content-type", meta.fetchPrefetch.contentType]]
@@ -185,6 +187,7 @@ export async function scrapeURLWithFetch(
       response = {
         url: x.url,
         body: text,
+        bodyBuffer: buf,
         status: x.status,
         headers: [...x.headers],
       };
@@ -223,6 +226,7 @@ export async function scrapeURLWithFetch(
     contentType:
       (response.headers.find(x => x[0].toLowerCase() === "content-type") ??
         [])[1] ?? undefined,
+    bodyBuffer: response.bodyBuffer,
 
     proxyUsed: "basic",
   };

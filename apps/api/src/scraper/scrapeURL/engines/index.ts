@@ -154,6 +154,8 @@ export type EngineScrapeResult = {
   };
 
   contentType?: string;
+  bodyBuffer?: Buffer;
+  binaryFilePath?: string;
 
   youtubeTranscriptContent?: any;
   postprocessorsUsed?: string[];
@@ -244,8 +246,8 @@ const engineOptions: {
       waitFor: true, // through actions transform
       screenshot: true, // through actions transform
       "screenshot@fullScreen": true, // through actions transform
-      pdf: false,
-      document: false,
+      pdf: true,
+      document: true,
       audio: true,
       video: true,
       atsv: false,
@@ -265,8 +267,8 @@ const engineOptions: {
       waitFor: true, // through actions transform
       screenshot: true, // through actions transform
       "screenshot@fullScreen": true, // through actions transform
-      pdf: false,
-      document: false,
+      pdf: true,
+      document: true,
       audio: true,
       video: true,
       atsv: false,
@@ -307,8 +309,8 @@ const engineOptions: {
       waitFor: true, // through actions transform
       screenshot: true, // through actions transform
       "screenshot@fullScreen": true, // through actions transform
-      pdf: false,
-      document: false,
+      pdf: true,
+      document: true,
       audio: true,
       video: true,
       atsv: false,
@@ -328,8 +330,8 @@ const engineOptions: {
       waitFor: true, // through actions transform
       screenshot: true, // through actions transform
       "screenshot@fullScreen": true, // through actions transform
-      pdf: false,
-      document: false,
+      pdf: true,
+      document: true,
       audio: true,
       video: true,
       atsv: false,
@@ -349,8 +351,8 @@ const engineOptions: {
       waitFor: true,
       screenshot: false,
       "screenshot@fullScreen": false,
-      pdf: false,
-      document: false,
+      pdf: true,
+      document: true,
       audio: false,
       video: false,
       atsv: false,
@@ -370,8 +372,8 @@ const engineOptions: {
       waitFor: false,
       screenshot: false,
       "screenshot@fullScreen": false,
-      pdf: false,
-      document: false,
+      pdf: true,
+      document: true,
       audio: true,
       video: true,
       atsv: true,
@@ -391,8 +393,8 @@ const engineOptions: {
       waitFor: false,
       screenshot: false,
       "screenshot@fullScreen": false,
-      pdf: false,
-      document: false,
+      pdf: true,
+      document: true,
       audio: true,
       video: true,
       atsv: true,
@@ -412,8 +414,8 @@ const engineOptions: {
       waitFor: false,
       screenshot: false,
       "screenshot@fullScreen": false,
-      pdf: false,
-      document: false,
+      pdf: true,
+      document: true,
       audio: false,
       video: false,
       atsv: false,
@@ -750,14 +752,4 @@ export async function scrapeURLWithEngine(
   };
 
   return await fn(_meta);
-}
-
-export function getEngineMaxReasonableTime(meta: Meta, engine: Engine): number {
-  const mrt = engineMRTs[engine];
-  // shan't happen - mogery
-  if (mrt === undefined) {
-    meta.logger.warn("No MRT for engine", { engine });
-    return 30000;
-  }
-  return mrt(meta);
 }

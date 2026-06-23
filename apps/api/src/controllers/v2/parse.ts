@@ -114,17 +114,7 @@ function getSyntheticFilename(file: UploadedParseFile): string {
   return `${file.filename}.html`;
 }
 
-function getParseForceEngine(
-  kind: UploadedParseFileKind,
-): "fetch" | "pdf" | "document" {
-  if (kind === "pdf") {
-    return "pdf";
-  }
-
-  if (kind === "document") {
-    return "document";
-  }
-
+function getParseForceEngine(kind: UploadedParseFileKind): "fetch" {
   return "fetch";
 }
 
