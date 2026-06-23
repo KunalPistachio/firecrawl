@@ -30,6 +30,8 @@ import {
   ScrapeJobCancelledError,
   BrandingNotSupportedError,
   AudioUnsupportedUrlError,
+  VideoUnsupportedUrlError,
+  XTwitterConfigurationError,
 } from "../scraper/scrapeURL/error";
 
 type Reviver = (d: any) => TransportableError;
@@ -66,6 +68,8 @@ const revivers: Partial<Record<ErrorCodes, Reviver>> = {
   SCRAPE_SITEMAP_ERROR: d => new SitemapError(d.message, d.cause),
   CRAWL_DENIAL: d => new CrawlDenialError(d.reason),
   SCRAPE_AUDIO_UNSUPPORTED_URL: d => new AudioUnsupportedUrlError(d.message),
+  SCRAPE_VIDEO_UNSUPPORTED_URL: d => new VideoUnsupportedUrlError(d.message),
+  SCRAPE_X_TWITTER_CONFIGURATION_ERROR: () => new XTwitterConfigurationError(),
   MAP_FAILED: d => new MapFailedError(d.message),
 };
 

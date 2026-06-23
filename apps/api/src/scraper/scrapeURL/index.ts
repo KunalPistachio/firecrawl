@@ -224,6 +224,8 @@ async function runPostprocessors(
   meta: Meta,
   engineResult: EngineScrapeResult,
 ): Promise<EngineScrapeResult> {
+  meta.audioCookies = engineResult.audioCookies;
+
   if (
     !shouldRunYoutube(
       new URL(engineResult.url),

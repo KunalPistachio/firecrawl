@@ -13,6 +13,7 @@ import {
   mergeScrapedContent,
   calculateScrapeCredits,
 } from "./scrape";
+import { applySearchHighlights, highlightsEnvReady } from "./highlights";
 import { trackSearchResults, trackSearchRequest } from "../lib/tracking";
 import type { BillingMetadata } from "../services/billing/types";
 
@@ -26,8 +27,11 @@ interface SearchOptions {
   location?: string;
   sources: Array<{ type: string }>;
   categories?: CategoryOption[];
+  includeDomains?: string[];
+  excludeDomains?: string[];
   enterprise?: ("default" | "anon" | "zdr")[];
   scrapeOptions?: ScrapeOptions;
+  highlights?: boolean;
   timeout: number;
 }
 
@@ -43,6 +47,7 @@ interface SearchContext {
   zeroDataRetention?: boolean;
   billing?: BillingMetadata;
   agentIndexOnly?: boolean;
+  keylessReserved?: boolean;
 }
 
 interface SearchExecuteResult {
@@ -79,6 +84,10 @@ export async function executeSearch(
   const { query: searchQuery, categoryMap } = buildSearchQuery(
     query,
     categories,
+    {
+      includeDomains: options.includeDomains,
+      excludeDomains: options.excludeDomains,
+    },
   );
 
   const searchResponse = (await search({
@@ -144,7 +153,10 @@ export async function executeSearch(
     scrapeOptions?.formats && scrapeOptions.formats.length > 0;
 
   if (shouldScrape && scrapeOptions) {
-    const itemsToScrape = getItemsToScrape(searchResponse, flags);
+    const itemsToScrape = getItemsToScrape(searchResponse, flags, {
+      team_id: teamId,
+      origin,
+    });
 
     if (itemsToScrape.length > 0) {
       const scrapeOpts = {
@@ -158,6 +170,7 @@ export async function executeSearch(
         requestId,
         billing,
         agentIndexOnly: context.agentIndexOnly,
+        keylessReserved: context.keylessReserved,
       };
 
       const allDocsWithCostTracking = await scrapeSearchResults(
@@ -174,6 +187,21 @@ export async function executeSearch(
       );
       scrapeCredits = calculateScrapeCredits(allDocsWithCostTracking);
     }
+  }
+
+  // Experimental highlights beta: replace provider snippets with index-backed
+  // highlights. Gated on (1) the request opting in, (2) the team's highlightsBeta
+  // flag, and (3) all required envs being present (index DB, GCS, model). Any
+  // gate failing => silently keep the provider snippets.
+  // Runs after scraping (mergeScrapedContent rebuilds the result objects, so
+  // highlight mutations must come last to survive). Uses the user's original
+  // query, not the domain-filtered upstream query.
+  if (
+    options.highlights &&
+    flags?.highlightsBeta === true &&
+    highlightsEnvReady()
+  ) {
+    await applySearchHighlights(searchResponse, query, logger);
   }
 
   const scrapeFormats = scrapeOptions?.formats

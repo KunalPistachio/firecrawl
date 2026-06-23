@@ -15,6 +15,14 @@ import { rewriteUrl } from "./lib/rewrite-url";
 import { urlSpecificParams } from "./lib/url-specific-params";
 import type { FeatureFlag } from "./types";
 
+export type BrowserCookie = {
+  name: string;
+  value: string;
+  domain?: string;
+  path?: string;
+  expires?: number;
+};
+
 export type InternalOptions = {
   teamId: string;
   crawlId?: string;
@@ -48,12 +56,14 @@ export type Meta = {
   url: string;
   /** The caller's original URL. Flows into metadata.sourceURL. */
   sourceURL: string;
+  rewrittenUrl?: string;
   options: ScrapeOptions & { skipTlsVerification: boolean };
   internalOptions: InternalOptions;
   logger: Logger;
   abort: AbortManager;
   mock: MockState | null;
   costTracking: CostTracking;
+  audioCookies?: BrowserCookie[];
 };
 
 export async function buildMeta(
@@ -100,6 +110,7 @@ export async function buildMeta(
     id,
     url: fetchURL,
     sourceURL,
+    rewrittenUrl: rewritten ?? undefined,
     options: resolvedOptions,
     internalOptions,
     logger,

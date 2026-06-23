@@ -1,4 +1,5 @@
 import { TransportableError } from "../../lib/error";
+import type { ErrorCodes } from "../../lib/error";
 import { isSelfHosted } from "../../lib/deployment";
 
 export class EngineError extends Error {
@@ -7,6 +8,14 @@ export class EngineError extends Error {
   }
 }
 
+export class XTwitterConfigurationError extends TransportableError {
+  constructor() {
+    super(
+      "SCRAPE_X_TWITTER_CONFIGURATION_ERROR",
+      "X/Twitter scraping requires XAI_API_KEY to be configured.",
+    );
+  }
+}
 export class SSLError extends TransportableError {
   constructor(public skipTlsVerification: boolean) {
     super(
@@ -200,6 +209,24 @@ export class AudioUnsupportedUrlError extends TransportableError {
       "SCRAPE_AUDIO_UNSUPPORTED_URL",
       message ?? "The audio format does not support the provided URL",
     );
+  }
+}
+
+export class VideoUnsupportedUrlError extends TransportableError {
+  constructor(message?: string) {
+    super(
+      "SCRAPE_VIDEO_UNSUPPORTED_URL",
+      message ?? "The video format does not support the provided URL",
+    );
+  }
+
+  static deserialize(
+    _: ErrorCodes,
+    data: { message?: string; stack?: string },
+  ) {
+    const x = new VideoUnsupportedUrlError(data.message);
+    x.stack = data.stack;
+    return x;
   }
 }
 

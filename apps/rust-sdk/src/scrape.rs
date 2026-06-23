@@ -16,6 +16,9 @@ use crate::FirecrawlError;
 #[derive(Deserialize, Serialize, Debug, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ScrapeOptions {
+    /// Origin label for request attribution (e.g., "rust-sdk@2.8.0").
+    pub origin: Option<String>,
+
     /// Output formats to include in the response.
     pub formats: Option<Vec<Format>>,
 
@@ -72,6 +75,13 @@ pub struct ScrapeOptions {
 
     /// Store the result in cache for future requests.
     pub store_in_cache: Option<bool>,
+
+    /// Lockdown mode: serve only previously cached results, never make outbound requests.
+    pub lockdown: Option<bool>,
+
+    /// Redact personally identifiable information from returned content.
+    #[serde(rename = "redactPII")]
+    pub redact_pii: Option<bool>,
 
     /// Persistent browser profile for maintaining state across scrapes.
     pub profile: Option<ProfileConfig>,
@@ -240,9 +250,13 @@ impl Client {
         url: impl AsRef<str>,
         options: impl Into<Option<ScrapeOptions>>,
     ) -> Result<Document, FirecrawlError> {
+        let mut options = options.into().unwrap_or_default();
+        if options.origin.is_none() {
+            options.origin = Some(format!("rust-sdk@{}", env!("CARGO_PKG_VERSION")));
+        }
         let body = ScrapeRequest {
             url: url.as_ref().to_string(),
-            options: options.into().unwrap_or_default(),
+            options,
         };
 
         let headers = self.prepare_headers(None);
@@ -354,6 +368,9 @@ impl Client {
         if body.language.is_none() {
             body.language = Some(ScrapeExecuteLanguage::Node);
         }
+        if body.origin.is_none() {
+            body.origin = Some(format!("rust-sdk@{}", env!("CARGO_PKG_VERSION")));
+        }
 
         let response = self
             .client
@@ -433,7 +450,72 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{HighlightsFormat, QueryFormat, QueryFormatMode, QuestionFormat};
     use serde_json::json;
+
+    #[test]
+    fn test_query_format_serializes_mode() {
+        let options = ScrapeOptions {
+            formats: Some(vec![Format::Query(QueryFormat {
+                prompt: "What is Firecrawl?".to_string(),
+                mode: Some(QueryFormatMode::DirectQuote),
+            })]),
+            ..Default::default()
+        };
+
+        let payload = serde_json::to_value(options).unwrap();
+        assert_eq!(
+            payload["formats"][0],
+            json!({
+                "type": "query",
+                "prompt": "What is Firecrawl?",
+                "mode": "directQuote"
+            })
+        );
+    }
+
+    #[test]
+    fn test_question_and_highlights_formats_serialize() {
+        let options = ScrapeOptions {
+            formats: Some(vec![
+                Format::Question(QuestionFormat {
+                    question: "What is Firecrawl?".to_string(),
+                }),
+                Format::Highlights(HighlightsFormat {
+                    query: "What is Firecrawl?".to_string(),
+                }),
+            ]),
+            ..Default::default()
+        };
+
+        let payload = serde_json::to_value(options).unwrap();
+        assert_eq!(
+            payload["formats"][0],
+            json!({
+                "type": "question",
+                "question": "What is Firecrawl?"
+            })
+        );
+        assert_eq!(
+            payload["formats"][1],
+            json!({
+                "type": "highlights",
+                "query": "What is Firecrawl?"
+            })
+        );
+    }
+
+    #[test]
+    fn test_scrape_options_serializes_redact_pii() {
+        let options = ScrapeOptions {
+            redact_pii: Some(true),
+            ..Default::default()
+        };
+
+        let payload = serde_json::to_value(options).unwrap();
+        assert_eq!(payload["redactPII"], json!(true));
+        assert!(payload.get("formats").is_none());
+    }
 
     #[tokio::test]
     async fn test_scrape_with_mock() {

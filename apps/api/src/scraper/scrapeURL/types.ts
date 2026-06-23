@@ -1,5 +1,6 @@
 import type { ScrapeActionContent } from "../../lib/entities";
 import type { BrandingProfile } from "../../types/branding";
+import type { BrowserCookie } from "./context";
 
 export type Engine =
   | "gateway"
@@ -81,6 +82,7 @@ export type EngineScrapeResult = {
   contentType?: string;
   youtubeTranscriptContent?: any;
   postprocessorsUsed?: string[];
+  audioCookies?: BrowserCookie[];
   proxyUsed: "basic" | "stealth";
   timezone?: string;
 };

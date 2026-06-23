@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Firecrawl\Client;
 
 use Firecrawl\Exceptions\FirecrawlException;
+use Firecrawl\Version;
 use Firecrawl\Exceptions\JobTimeoutException;
 use Firecrawl\Models\AgentOptions;
 use Firecrawl\Models\AgentResponse;
@@ -24,6 +25,9 @@ use Firecrawl\Models\CreditUsage;
 use Firecrawl\Models\Document;
 use Firecrawl\Models\MapData;
 use Firecrawl\Models\MapOptions;
+use Firecrawl\Models\Monitor;
+use Firecrawl\Models\MonitorCheck;
+use Firecrawl\Models\MonitorCheckDetail;
 use Firecrawl\Models\ParseFile;
 use Firecrawl\Models\ParseOptions;
 use Firecrawl\Models\ScrapeOptions;
@@ -60,12 +64,10 @@ final class FirecrawlClient
         float $backoffFactor = self::DEFAULT_BACKOFF_FACTOR,
         ?ClientInterface $httpClient = null,
     ): self {
+        // An empty key is allowed: scrape, search, and interact fall back to the
+        // keyless free tier (rate-limited per IP). Other methods return 401 from
+        // the API until a key is provided.
         $resolvedKey = trim($apiKey ?: (getenv('FIRECRAWL_API_KEY') ?: ''));
-        if ($resolvedKey === '') {
-            throw new FirecrawlException(
-                'API key is required. Pass it directly or set the FIRECRAWL_API_KEY environment variable.',
-            );
-        }
 
         $resolvedUrl = $apiUrl ?: (getenv('FIRECRAWL_API_URL') ?: self::DEFAULT_API_URL);
 
@@ -108,10 +110,83 @@ final class FirecrawlClient
         if ($options !== null) {
             $body = array_merge($body, $options->toArray());
         }
+        $body['origin'] ??= 'php-sdk@' . Version::SDK_VERSION;
 
         $response = $this->http->post('/v2/scrape', $body);
 
         return Document::fromArray($response['data'] ?? $response);
+    }
+
+    /**
+     * Search research papers.
+     *
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    public function searchPapers(string $query, array $options = []): array
+    {
+        return $this->http->get('/v2/search/research/papers' . $this->queryArray(array_merge(
+            ['query' => $query, 'origin' => 'php-sdk@' . Version::SDK_VERSION],
+            $options,
+        )));
+    }
+
+    /**
+     * Inspect paper metadata.
+     *
+     * @return array<string, mixed>
+     */
+    public function inspectPaper(string $paperId): array
+    {
+        return $this->http->get('/v2/search/research/papers/' . rawurlencode($paperId));
+    }
+
+    /**
+     * Read a paper with query-guided passages.
+     *
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    public function readPaper(string $paperId, string $query, array $options = []): array
+    {
+        return $this->http->get(
+            '/v2/search/research/papers/' . rawurlencode($paperId)
+            . $this->queryArray(array_merge(
+                ['query' => $query, 'origin' => 'php-sdk@' . Version::SDK_VERSION],
+                $options,
+            )),
+        );
+    }
+
+    /**
+     * Find papers related to a paper.
+     *
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    public function relatedPapers(string $paperId, string $intent, array $options = []): array
+    {
+        return $this->http->get(
+            '/v2/search/research/papers/' . rawurlencode($paperId) . '/similar'
+            . $this->queryArray(array_merge(
+                ['intent' => $intent, 'origin' => 'php-sdk@' . Version::SDK_VERSION],
+                $options,
+            )),
+        );
+    }
+
+    /**
+     * Search GitHub research content.
+     *
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    public function searchGithub(string $query, array $options = []): array
+    {
+        return $this->http->get('/v2/search/research/github' . $this->queryArray(array_merge(
+            ['query' => $query, 'origin' => 'php-sdk@' . Version::SDK_VERSION],
+            $options,
+        )));
     }
 
     /**
@@ -123,6 +198,7 @@ final class FirecrawlClient
         string $language = 'node',
         ?int $timeout = null,
         ?string $origin = null,
+        ?string $prompt = null,
     ): BrowserExecuteResponse {
         $body = [
             'code' => $code,
@@ -134,6 +210,10 @@ final class FirecrawlClient
         if ($origin !== null) {
             $body['origin'] = $origin;
         }
+        if ($prompt !== null) {
+            $body['prompt'] = $prompt;
+        }
+        $body['origin'] ??= 'php-sdk@' . Version::SDK_VERSION;
 
         return BrowserExecuteResponse::fromArray(
             $this->http->post("/v2/scrape/{$jobId}/interact", $body),
@@ -313,6 +393,146 @@ final class FirecrawlClient
     }
 
     // ================================================================
+    // MONITOR
+    // ================================================================
+
+    /**
+     * Create a scheduled monitor.
+     *
+     * @param array<string, mixed>       $schedule
+     * @param list<array<string, mixed>> $targets
+     * @param array<string, mixed>|null  $webhook
+     * @param array<string, mixed>|null  $notification
+     */
+    public function createMonitor(
+        string $name,
+        array $schedule,
+        array $targets,
+        ?array $webhook = null,
+        ?array $notification = null,
+        ?int $retentionDays = null,
+        ?string $goal = null,
+        ?bool $judgeEnabled = null,
+    ): Monitor {
+        $body = array_filter([
+            'name' => $name,
+            'schedule' => $schedule,
+            'targets' => $targets,
+            'webhook' => $webhook,
+            'notification' => $notification,
+            'retentionDays' => $retentionDays,
+            'goal' => $goal,
+            'judgeEnabled' => $judgeEnabled,
+        ], static fn ($value) => $value !== null);
+
+        $response = $this->http->post('/v2/monitor', $body);
+
+        return Monitor::fromArray($response['data'] ?? $response);
+    }
+
+    /**
+     * @return list<Monitor>
+     */
+    public function listMonitors(?int $limit = null, ?int $offset = null): array
+    {
+        $response = $this->http->get('/v2/monitor' . $this->query([
+            'limit' => $limit,
+            'offset' => $offset,
+        ]));
+
+        return array_map(
+            static fn (array $item): Monitor => Monitor::fromArray($item),
+            $response['data'] ?? [],
+        );
+    }
+
+    public function getMonitor(string $monitorId): Monitor
+    {
+        $response = $this->http->get("/v2/monitor/{$monitorId}");
+
+        return Monitor::fromArray($response['data'] ?? $response);
+    }
+
+    /**
+     * @param array<string, mixed> $attributes
+     */
+    public function updateMonitor(string $monitorId, array $attributes): Monitor
+    {
+        $response = $this->http->patch("/v2/monitor/{$monitorId}", $attributes);
+
+        return Monitor::fromArray($response['data'] ?? $response);
+    }
+
+    public function deleteMonitor(string $monitorId): bool
+    {
+        $response = $this->http->delete("/v2/monitor/{$monitorId}");
+
+        return ($response['success'] ?? false) === true;
+    }
+
+    public function runMonitor(string $monitorId): MonitorCheck
+    {
+        $response = $this->http->post("/v2/monitor/{$monitorId}/run", []);
+
+        return MonitorCheck::fromArray($response['data'] ?? $response);
+    }
+
+    /**
+     * @return list<MonitorCheck>
+     */
+    public function listMonitorChecks(string $monitorId, ?int $limit = null, ?int $offset = null): array
+    {
+        $response = $this->http->get("/v2/monitor/{$monitorId}/checks" . $this->query([
+            'limit' => $limit,
+            'offset' => $offset,
+        ]));
+
+        return array_map(
+            static fn (array $item): MonitorCheck => MonitorCheck::fromArray($item),
+            $response['data'] ?? [],
+        );
+    }
+
+    public function getMonitorCheck(
+        string $monitorId,
+        string $checkId,
+        ?int $limit = null,
+        ?int $skip = null,
+        ?string $status = null,
+        bool $autoPaginate = true,
+    ): MonitorCheckDetail {
+        $response = $this->http->get("/v2/monitor/{$monitorId}/checks/{$checkId}" . $this->query([
+            'limit' => $limit,
+            'skip' => $skip,
+            'status' => $status,
+        ]));
+
+        $data = $response['data'] ?? $response;
+        if (isset($response['next'])) {
+            $data['next'] = $response['next'];
+        }
+
+        if (!$autoPaginate) {
+            return MonitorCheckDetail::fromArray($data);
+        }
+
+        while (isset($data['next']) && is_string($data['next']) && $data['next'] !== '') {
+            $this->assertSameOrigin($data['next']);
+            $nextResponse = $this->http->getAbsolute($data['next']);
+            $nextData = $nextResponse['data'] ?? $nextResponse;
+            if (isset($nextResponse['next'])) {
+                $nextData['next'] = $nextResponse['next'];
+            }
+
+            $data['pages'] = array_merge($data['pages'] ?? [], $nextData['pages'] ?? []);
+            $data['next'] = $nextData['next'] ?? null;
+        }
+
+        $data['next'] = null;
+        return MonitorCheckDetail::fromArray($data);
+    }
+
+    // ================================================================
     // SEARCH
     // ================================================================
 
@@ -325,6 +545,7 @@ final class FirecrawlClient
         if ($options !== null) {
             $body = array_merge($body, $options->toArray());
         }
+        $body['origin'] ??= 'php-sdk@' . Version::SDK_VERSION;
 
         $response = $this->http->post('/v2/search', $body);
 
@@ -399,11 +620,14 @@ final class FirecrawlClient
 
     /**
      * Create a new browser session.
+     *
+     * @param array<string, string>|null $profile
      */
     public function browser(
         ?int $ttl = null,
         ?int $activityTtl = null,
         ?bool $streamWebView = null,
+        ?array $profile = null,
     ): BrowserCreateResponse {
         $body = [];
         if ($ttl !== null) {
@@ -414,6 +638,9 @@ final class FirecrawlClient
         }
         if ($streamWebView !== null) {
             $body['streamWebView'] = $streamWebView;
+        }
+        if ($profile !== null) {
+            $body['profile'] = $profile;
         }
 
         return BrowserCreateResponse::fromArray($this->http->post('/v2/browser', $body));
@@ -495,6 +722,39 @@ final class FirecrawlClient
         }
     }
 
+    /**
+     * @param array<string, scalar|null> $params
+     */
+    private function query(array $params): string
+    {
+        $params = array_filter($params, static fn ($value) => $value !== null && $value !== '');
+
+        return $params === [] ? '' : '?' . http_build_query($params);
+    }
+
+    /**
+     * @param array<string, mixed> $params
+     */
+    private function queryArray(array $params): string
+    {
+        $pairs = [];
+        foreach ($params as $key => $value) {
+            if ($value === null || $value === '') {
+                continue;
+            }
+            $values = is_array($value) ? $value : [$value];
+            foreach ($values as $item) {
+                if ($item === null || $item === '') {
+                    continue;
+                }
+                $stringValue = is_bool($item) ? ($item ? 'true' : 'false') : (string) $item;
+                $pairs[] = rawurlencode((string) $key) . '=' . rawurlencode($stringValue);
+            }
+        }
+
+        return $pairs === [] ? '' : '?' . implode('&', $pairs);
+    }
+
     private function pollCrawl(
         ?string $jobId,
         int $pollIntervalSec,
@@ -543,10 +803,29 @@ final class FirecrawlClient
 
     private function assertSameOrigin(string $url): void
     {
+        $baseScheme = parse_url($this->http->getBaseUrl(), PHP_URL_SCHEME);
         $baseHost = parse_url($this->http->getBaseUrl(), PHP_URL_HOST);
+        $basePort = parse_url($this->http->getBaseUrl(), PHP_URL_PORT);
+        $nextScheme = parse_url($url, PHP_URL_SCHEME);
         $nextHost = parse_url($url, PHP_URL_HOST);
+        $nextPort = parse_url($url, PHP_URL_PORT);
 
-        if ($baseHost === null || $nextHost === null || strcasecmp($baseHost, $nextHost) !== 0) {
+        $basePort ??= is_string($baseScheme) && strcasecmp($baseScheme, 'https') === 0
+            ? 443
+            : 80;
+        $nextPort ??= is_string($nextScheme) && strcasecmp($nextScheme, 'https') === 0
+            ? 443
+            : 80;
+
+        if (
+            $baseScheme === null ||
+            $nextScheme === null ||
+            $baseHost === null ||
+            $nextHost === null ||
+            strcasecmp($baseScheme, $nextScheme) !== 0 ||
+            strcasecmp($baseHost, $nextHost) !== 0 ||
+            $basePort !== $nextPort
+        ) {
             throw new FirecrawlException(
                 'Pagination URL origin does not match the API base URL. Refusing to follow: ' . $url,
             );

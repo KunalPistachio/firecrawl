@@ -68,6 +68,15 @@ final class FirecrawlHttpClient
     }
 
     /**
+     * @param array<string, mixed> $body
+     * @return array<string, mixed>
+     */
+    public function patch(string $path, array $body): array
+    {
+        return $this->request('PATCH', $this->baseUrl . $path, $body);
+    }
+
+    /**
      * Send a POST request with a multipart/form-data body.
      *
      * @param array<string, string> $fields
@@ -127,10 +136,14 @@ final class FirecrawlHttpClient
         ?array $multipart = null,
     ): array {
         $defaultHeaders = [
-            'Authorization' => 'Bearer ' . $this->apiKey,
             'Accept' => 'application/json',
             'User-Agent' => 'firecrawl-php/' . Version::SDK_VERSION,
         ];
+        // Omit the Authorization header entirely when no key is set so that
+        // scrape/search/interact can use the keyless free tier.
+        if ($this->apiKey !== '') {
+            $defaultHeaders['Authorization'] = 'Bearer ' . $this->apiKey;
+        }
 
         if ($multipart === null) {
             $defaultHeaders['Content-Type'] = 'application/json';
@@ -145,7 +158,7 @@ final class FirecrawlHttpClient
 
         if ($multipart !== null) {
             $options[RequestOptions::MULTIPART] = $multipart;
-        } elseif ($method === 'POST' && $body !== []) {
+        } elseif (($method === 'POST' || $method === 'PATCH') && $body !== []) {
             $options[RequestOptions::JSON] = $body;
         }
 

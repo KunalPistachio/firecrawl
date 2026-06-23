@@ -15,7 +15,7 @@ from ..utils.get_version import get_version
 version = get_version()
 
 ParseFileInput = Union[str, bytes, bytearray, Path, BinaryIO]
-UNSUPPORTED_PARSE_FORMATS = {"changeTracking", "screenshot", "branding"}
+UNSUPPORTED_PARSE_FORMATS = {"changeTracking", "screenshot", "branding", "audio", "video"}
 
 
 def _extract_format_type(format_item: Any) -> Optional[str]:
@@ -53,6 +53,8 @@ def _validate_parse_options_payload(options_payload: Dict[str, Any]) -> None:
                 raise ValueError("Parse uploads do not support change tracking.")
             if fmt_type == "screenshot":
                 raise ValueError("Parse uploads do not support screenshot output.")
+            if fmt_type in {"audio", "video"}:
+                raise ValueError(f"Parse uploads do not support {fmt_type} output.")
             raise ValueError("Parse uploads do not support branding output.")
 
 
@@ -70,6 +72,7 @@ def _prepare_parse_options_payload(
             opts.pop("maxAge", None)
             opts.pop("minAge", None)
             opts.pop("storeInCache", None)
+            opts.pop("lockdown", None)
             request_data.update(opts)
 
     request_data["origin"] = request_data.get("origin") or f"python-sdk@{version}"

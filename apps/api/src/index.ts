@@ -26,7 +26,7 @@ import {
   ResponseWithSentry,
 } from "./controllers/v1/types";
 import { ZodError } from "zod";
-import { QueueFullError } from "./lib/concurrency-limit";
+import { QueueFullError } from "./lib/queue-full-error";
 import { v7 as uuidv7 } from "uuid";
 import { attachWsProxy } from "./services/agentLivecastWS";
 import { cacheableLookup } from "./scraper/scrapeURL/lib/cacheable-lookup";
@@ -123,7 +123,12 @@ async function startServer(port = DEFAULT_PORT) {
   // Attach WebSocket proxy to the Express app
   attachWsProxy(app);
 
-  const server = app.listen(Number(port), HOST, () => {
+  const server = app.listen(Number(port), HOST, (error?: Error) => {
+    if (error) {
+      logger.error("Failed to start HTTP server", { error, port, host: HOST });
+      throw error;
+    }
+
     logger.info(`Worker ${process.pid} listening on port ${port}`);
   });
 

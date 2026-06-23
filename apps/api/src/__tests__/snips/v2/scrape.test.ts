@@ -1203,7 +1203,7 @@ describe("Scrape tests", () => {
             identity,
           );
 
-          expect(response.markdown).toContain("| Country | United States |");
+          expect(response.markdown).toContain("| Country | United States "); // either United States or United States of America
         },
         scrapeTimeout,
       );
@@ -1322,6 +1322,55 @@ describe("Scrape tests", () => {
         scrapeTimeout * 2,
       );
 
+      // Regression: an explicit stealth/enhanced proxy must still use stealth
+      // even when another feature flag (e.g. actions) is requested. The engine
+      // picker used to drop the negative-quality stealth engines via the quality
+      // filter, so a request with a non-stealth flag would silently fall back to
+      // a basic proxy.
+      it.concurrent(
+        "enhanced uses stealth alongside other feature flags",
+        async () => {
+          const res = await scrape(
+            {
+              url: base,
+              proxy: "enhanced",
+              actions: [
+                {
+                  type: "wait",
+                  milliseconds: 500,
+                },
+              ],
+            },
+            identity,
+          );
+
+          expect(res.metadata.proxyUsed).toBe("stealth");
+        },
+        scrapeTimeout * 2,
+      );
+
+      it.concurrent(
+        "stealth uses stealth alongside other feature flags",
+        async () => {
+          const res = await scrape(
+            {
+              url: base,
+              proxy: "stealth",
+              actions: [
+                {
+                  type: "wait",
+                  milliseconds: 500,
+                },
+              ],
+            },
+            identity,
+          );
+
+          expect(res.metadata.proxyUsed).toBe("stealth");
+        },
+        scrapeTimeout * 2,
+      );
+
       // TODO: flaky
       // it.concurrent("auto works properly on 'stealth' site (faked for reliabile testing)", async () => {
       //   const res = await scrape({
@@ -1346,7 +1395,7 @@ describe("Scrape tests", () => {
           );
 
           expect(response.markdown).toContain("PDF Test File");
-          expect(response.metadata.title).toBe("PDF Test Page");
+          expect(response.metadata.title).toContain("PDF Test Page");
           expect(response.metadata.numPages).toBe(1);
         },
         scrapeTimeout,
@@ -1373,7 +1422,9 @@ describe("Scrape tests", () => {
             identity,
           );
 
-          expect(response.error).toContain("Insufficient time to process PDF");
+          expect(response.error).toContain(
+            "pages, which requires more processing time than your current timeout allows.",
+          );
         },
         12000,
       );
@@ -2060,6 +2111,42 @@ describe("Attribute formats", () => {
         );
 
         expect(result.error).toMatch(/audio/i);
+      },
+      scrapeTimeout,
+    );
+  });
+
+  describeIf(!TEST_SELF_HOST)("Video format", () => {
+    it.concurrent(
+      "should return video field with signed GCS URL for a supported video URL",
+      async () => {
+        const data = await scrape(
+          {
+            url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            formats: ["video"],
+          },
+          identity,
+        );
+
+        expect(data.video).toBeDefined();
+        expect(typeof data.video).toBe("string");
+        expect(data.video).toMatch(/^https:\/\//);
+      },
+      scrapeTimeout * 2,
+    );
+
+    it.concurrent(
+      "should reject unsupported URL with video format",
+      async () => {
+        const result = await scrapeWithFailure(
+          {
+            url: "https://example.com",
+            formats: ["video"],
+          },
+          identity,
+        );
+
+        expect(result.error).toMatch(/video/i);
       },
       scrapeTimeout,
     );

@@ -23,6 +23,12 @@ pub struct SearchOptions {
     /// Categories to filter results (github, research, pdf).
     pub categories: Option<Vec<SearchCategory>>,
 
+    /// Domains to include in search results.
+    pub include_domains: Option<Vec<String>>,
+
+    /// Domains to exclude from search results.
+    pub exclude_domains: Option<Vec<String>>,
+
     /// Time-based search filter (e.g., "qdr:d" for past day).
     pub tbs: Option<String>,
 
@@ -40,6 +46,9 @@ pub struct SearchOptions {
 
     /// Integration identifier for tracking.
     pub integration: Option<String>,
+
+    /// Origin label for request attribution (e.g., "rust-sdk@2.8.0").
+    pub origin: Option<String>,
 }
 
 /// Request body for search endpoint.
@@ -167,9 +176,13 @@ impl Client {
         query: impl AsRef<str>,
         options: impl Into<Option<SearchOptions>>,
     ) -> Result<SearchResponse, FirecrawlError> {
+        let mut options = options.into().unwrap_or_default();
+        if options.origin.is_none() {
+            options.origin = Some(format!("rust-sdk@{}", env!("CARGO_PKG_VERSION")));
+        }
         let body = SearchRequest {
             query: query.as_ref().to_string(),
-            options: options.into().unwrap_or_default(),
+            options,
         };
 
         let headers = self.prepare_headers(None);

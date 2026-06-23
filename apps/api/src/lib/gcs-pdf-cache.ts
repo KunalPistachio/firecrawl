@@ -6,6 +6,15 @@ import { storage } from "./gcs-jobs";
 
 type PdfCacheProvider = "runpod" | "firepdf";
 
+// Cache shape — markdown/html are required; pagesProcessed is optional so
+// pre-existing entries (written before the field existed) round-trip cleanly
+// and the caller can fall back to its own page-count signal on a stale hit.
+type CachedPdfResult = {
+  markdown: string;
+  html: string;
+  pagesProcessed?: number;
+};
+
 const PROVIDER_PREFIXES: Record<PdfCacheProvider, string> = {
   runpod: "pdf-cache-v2/",
   firepdf: "pdf-cache-firepdf/",
@@ -17,8 +26,9 @@ export function createPdfCacheKey(pdfContent: string | Buffer): string {
 
 export async function savePdfResultToCache(
   pdfContent: string,
-  result: { markdown: string; html: string },
+  result: CachedPdfResult,
   provider: PdfCacheProvider = "runpod",
+  variant?: string,
 ): Promise<string | null> {
   try {
     if (!config.GCS_BUCKET_NAME) {
@@ -27,8 +37,9 @@ export async function savePdfResultToCache(
 
     const prefix = PROVIDER_PREFIXES[provider];
     const cacheKey = createPdfCacheKey(pdfContent);
+    const objectKey = variant ? `${cacheKey}-${variant}` : cacheKey;
     const bucket = storage.bucket(config.GCS_BUCKET_NAME);
-    const blob = bucket.file(`${prefix}${cacheKey}.json`);
+    const blob = bucket.file(`${prefix}${objectKey}.json`);
 
     for (let i = 0; i < 3; i++) {
       try {
@@ -74,7 +85,8 @@ export async function savePdfResultToCache(
 export async function getPdfResultFromCache(
   pdfContent: string,
   provider: PdfCacheProvider = "runpod",
-): Promise<{ markdown: string; html: string } | null> {
+  variant?: string,
+): Promise<CachedPdfResult | null> {
   try {
     if (!config.GCS_BUCKET_NAME) {
       return null;
@@ -82,8 +94,9 @@ export async function getPdfResultFromCache(
 
     const prefix = PROVIDER_PREFIXES[provider];
     const cacheKey = createPdfCacheKey(pdfContent);
+    const objectKey = variant ? `${cacheKey}-${variant}` : cacheKey;
     const bucket = storage.bucket(config.GCS_BUCKET_NAME);
-    const blob = bucket.file(`${prefix}${cacheKey}.json`);
+    const blob = bucket.file(`${prefix}${objectKey}.json`);
 
     const [content] = await blob.download();
     const result = JSON.parse(content.toString());
