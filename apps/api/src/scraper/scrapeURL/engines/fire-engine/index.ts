@@ -1,5 +1,4 @@
 import { Logger } from "winston";
-import { Meta } from "../..";
 import {
   fireEngineScrape,
   fireEngineURL,
@@ -8,7 +7,6 @@ import {
   FireEngineScrapeRequestCommon,
   FireEngineScrapeRequestTLSClient,
 } from "./scrape";
-import { EngineScrapeResult } from "..";
 import {
   fireEngineCheckStatus,
   FireEngineCheckStatusSuccess,
@@ -16,7 +14,6 @@ import {
 } from "./checkStatus";
 import {
   ActionError,
-  AddFeatureError,
   EngineError,
   DNSResolutionError,
   SiteError,
@@ -28,7 +25,6 @@ import {
 import * as Sentry from "@sentry/node";
 import { specialtyScrapeCheck } from "../utils/specialtyHandler";
 import { fireEngineDelete } from "./delete";
-import { MockState } from "../../lib/mock";
 import { getInnerJson } from "@mendable/firecrawl-rs";
 import { hasFormatOfType } from "../../../../lib/format-utils";
 import { InternalAction } from "../../../../controllers/v1/types";
@@ -39,6 +35,8 @@ import { getBrandingScript } from "./brandingScript";
 import { abTestFireEngine } from "../../../../services/ab-test";
 import { scheduleABComparison } from "../../../../services/ab-test-comparison";
 import { createHash } from "node:crypto";
+import { Meta } from "../../lib/meta";
+import { Engine, EngineScrapeResult } from "../types";
 
 /** Default wait (ms) before running the branding script when user did not set waitFor. Lets the page settle so DOM/images are ready and reduces JS errors. */
 const BRANDING_DEFAULT_WAIT_MS = 2000;
@@ -54,7 +52,6 @@ async function performFireEngineScrape<
   meta: Meta,
   logger: Logger,
   request: FireEngineScrapeRequestCommon & Engine,
-  mock: MockState | null,
   abort?: AbortSignal,
   production = true,
 ): Promise<FireEngineCheckStatusSuccess> {
@@ -85,7 +82,6 @@ async function performFireEngineScrape<
       meta,
       logger.child({ method: "fireEngineScrape" }),
       request,
-      mock,
       abort,
       baseUrl,
     );
@@ -104,7 +100,6 @@ async function performFireEngineScrape<
               afterErrors: errors,
             }),
             (scrape as any).jobId,
-            mock,
             undefined,
             baseUrl,
           ).catch(e => {
@@ -123,7 +118,6 @@ async function performFireEngineScrape<
             meta,
             logger.child({ method: "fireEngineCheckStatus" }),
             (scrape as any).jobId,
-            mock,
             abort,
             baseUrl,
           );
@@ -138,8 +132,7 @@ async function performFireEngineScrape<
             error instanceof ActionError ||
             error instanceof UnsupportedFileError ||
             error instanceof FEPageLoadFailed ||
-            error instanceof ProxySelectionError ||
-            error instanceof AddFeatureError
+            error instanceof ProxySelectionError
           ) {
             fireEngineDelete(
               logger.child({
@@ -147,7 +140,6 @@ async function performFireEngineScrape<
                 afterError: error,
               }),
               (scrape as any).jobId,
-              mock,
               undefined,
               baseUrl,
             ).catch(e => {
@@ -167,7 +159,6 @@ async function performFireEngineScrape<
                 afterError: error,
               }),
               (scrape as any).jobId,
-              mock,
               undefined,
               baseUrl,
             ).catch(e => {
@@ -220,7 +211,6 @@ async function performFireEngineScrape<
         method: "performFireEngineScrape/fireEngineDelete",
       }),
       (scrape as any).jobId,
-      mock,
       undefined,
       baseUrl,
     ).catch(e => {
@@ -361,7 +351,7 @@ export async function scrapeURLWithFireEngineChromeCDP(
       mobile: meta.options.mobile,
       timeout: meta.abort.scrapeTimeout() ?? 300000,
       disableSmartWaitCache: meta.internalOptions.disableSmartWaitCache,
-      mobileProxy: meta.featureFlags.has("stealthProxy"),
+      mobileProxy: meta.options.proxy === "enhanced",
       saveScrapeResultToGCS:
         !meta.internalOptions.zeroDataRetention &&
         meta.internalOptions.saveScrapeResultToGCS,
@@ -381,7 +371,6 @@ export async function scrapeURLWithFireEngineChromeCDP(
         request,
       }),
       request,
-      meta.mock,
       meta.abort.asSignal(),
       true,
     );
@@ -496,7 +485,7 @@ export async function scrapeURLWithFireEngineTLSClient(
       atsv: meta.internalOptions.atsv,
       geolocation: meta.options.location,
       disableJsDom: meta.internalOptions.v0DisableJsDom,
-      mobileProxy: meta.featureFlags.has("stealthProxy"),
+      mobileProxy: meta.options.proxy === "enhanced",
 
       timeout: meta.abort.scrapeTimeout() ?? 300000,
       saveScrapeResultToGCS:
@@ -512,7 +501,6 @@ export async function scrapeURLWithFireEngineTLSClient(
         request,
       }),
       request,
-      meta.mock,
       meta.abort.asSignal(),
     );
 
@@ -541,27 +529,30 @@ export async function scrapeURLWithFireEngineTLSClient(
   });
 }
 
-export function fireEngineMaxReasonableTime(
-  meta: Meta,
-  engine: "chrome-cdp" | "tlsclient",
-): number {
-  const hasBranding = hasFormatOfType(meta.options.formats, "branding");
-  const defaultWait = hasBranding ? BRANDING_DEFAULT_WAIT_MS : 0;
-  const effectiveWait =
-    meta.options.waitFor != null && meta.options.waitFor !== 0
-      ? meta.options.waitFor
-      : defaultWait;
+export const fireEngine: Engine = {
+  name: "fire-engine;chrome-cdp",
+  features: {
+    actions: true,
+    waitFor: true, // through actions transform
+    screenshot: true, // through actions transform
+    "screenshot@fullScreen": true, // through actions transform
+    audio: true,
+    video: true,
+    atsv: false,
+    location: true,
+    mobile: true,
+    branding: true,
+    disableAdblock: false,
+  },
+  scrape: meta => {
+    const logger = meta.logger.child({
+      method: "scrapeURLWithFireEngineChromeCDP",
+      engine: "fire-engine;chrome-cdp",
+    });
 
-  if (engine === "tlsclient") {
-    return 15000;
-  } else {
-    return (
-      effectiveWait +
-      (meta.options.actions?.reduce(
-        (a, x) => (x.type === "wait" ? (x.milliseconds ?? 2500) + a : 250 + a),
-        0,
-      ) ?? 0) +
-      30000
-    );
-  }
-}
+    return scrapeURLWithFireEngineChromeCDP({
+      ...meta,
+      logger,
+    });
+  },
+};
