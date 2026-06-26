@@ -233,11 +233,22 @@ export function buildHtml(payload: MonitoringEmailPayload): string {
   // Search monitors find results; scrape/crawl monitors track page changes — so the
   // intro line + breakdown read differently for each. Search never produces
   // changed/removed, so those rows are dropped in favour of matches/already-seen/checked.
-  const activityLine = payload.isSearch
-    ? payload.summary.new === 1
-      ? "found a new match"
-      : `found ${payload.summary.new} new matches`
-    : "detected activity";
+  let activityLine: string;
+  if (!payload.isSearch) {
+    activityLine = "detected activity";
+  } else if (payload.summary.new > 0) {
+    activityLine =
+      payload.summary.new === 1
+        ? "found a new match"
+        : `found ${payload.summary.new} new matches`;
+  } else {
+    // A search email with no new matches only fires because of scrape errors, so
+    // lead with those instead of the misleading "found 0 new matches".
+    activityLine =
+      payload.summary.error === 1
+        ? "ran into an error while checking results"
+        : `ran into ${payload.summary.error} errors while checking results`;
+  }
   const summaryItems = payload.isSearch
     ? `  <li>Matches: ${payload.summary.new}</li>
   <li>Already seen: ${payload.summary.same}</li>

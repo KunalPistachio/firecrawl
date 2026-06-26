@@ -233,6 +233,52 @@ describe("monitoring email URLs", () => {
     expect(html).toContain("found a new match");
     expect(html).toContain("Errors: 1");
   });
+
+  it("leads with errors (not '0 new matches') for an error-only search check", () => {
+    const html = buildHtml({
+      monitorId: "m1",
+      monitorName: "AI news",
+      checkId: "c1",
+      dashboardUrl: "https://www.firecrawl.dev/app/monitoring/m1?checkId=c1",
+      summary: {
+        changed: 0,
+        new: 0,
+        same: 8,
+        removed: 0,
+        error: 2,
+        totalPages: 8,
+      },
+      pages: [{ url: "https://example.com", status: "error" }],
+      creditsUsed: 1,
+      isSearch: true,
+    });
+    expect(html).toContain("ran into 2 errors while checking results");
+    expect(html).not.toContain("0 new matches");
+    // errors still appear in the breakdown
+    expect(html).toContain("Errors: 2");
+  });
+
+  it("uses singular error phrasing for a single error-only search check", () => {
+    const html = buildHtml({
+      monitorId: "m1",
+      monitorName: "AI news",
+      checkId: "c1",
+      dashboardUrl: "https://www.firecrawl.dev/app/monitoring/m1?checkId=c1",
+      summary: {
+        changed: 0,
+        new: 0,
+        same: 5,
+        removed: 0,
+        error: 1,
+        totalPages: 6,
+      },
+      pages: [{ url: "https://example.com", status: "error" }],
+      creditsUsed: 1,
+      isSearch: true,
+    });
+    expect(html).toContain("ran into an error while checking results");
+    expect(html).not.toContain("new match");
+  });
 });
 
 describe("buildConfirmationHtml", () => {
