@@ -554,6 +554,8 @@ async function scrapeURLLoopIter(
         },
       );
       checkMarkdown = engineResult.html?.trim() ?? "";
+    } else if (engineResult.markdown?.trim()) {
+      checkMarkdown = engineResult.markdown.trim();
     } else {
       const requestId = meta.id || meta.internalOptions.crawlId;
       const zeroDataRetention = meta.internalOptions.zeroDataRetention;
