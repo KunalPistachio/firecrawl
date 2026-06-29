@@ -1849,6 +1849,14 @@
                               "statusCode": {
                                 "type": "integer"
                               },
+                              "numPages": {
+                                "type": "integer",
+                                "description": "For PDF inputs, the number of pages parsed (capped by the parsers maxPages option)."
+                              },
+                              "totalPages": {
+                                "type": "integer",
+                                "description": "For PDF inputs, the document's true page count before any maxPages capping. Omitted when it cannot be determined; a totalPages greater than numPages indicates the result was truncated."
+                              },
                               "error": {
                                 "type": "string",
                                 "nullable": true
@@ -2685,6 +2693,14 @@
                     "type": "integer",
                     "description": "The status code of the page"
                   },
+                  "numPages": {
+                    "type": "integer",
+                    "description": "For PDF inputs, the number of pages parsed (capped by the parsers maxPages option)."
+                  },
+                  "totalPages": {
+                    "type": "integer",
+                    "description": "For PDF inputs, the document's true page count before any maxPages capping. Omitted when it cannot be determined; a totalPages greater than numPages indicates the result was truncated."
+                  },
                   "timezone": {
                     "type": "string",
                     "description": "Timezone inferred by the scraping engine, when available"
@@ -2902,6 +2918,14 @@
                       "type": "integer",
                       "description": "The status code of the page"
                     },
+                    "numPages": {
+                      "type": "integer",
+                      "description": "For PDF inputs, the number of pages parsed (capped by the parsers maxPages option)."
+                    },
+                    "totalPages": {
+                      "type": "integer",
+                      "description": "For PDF inputs, the document's true page count before any maxPages capping. Omitted when it cannot be determined; a totalPages greater than numPages indicates the result was truncated."
+                    },
                     "timezone": {
                       "type": "string",
                       "description": "Timezone inferred by the scraping engine, when available"
@@ -3038,6 +3062,14 @@
                     "statusCode": {
                       "type": "integer",
                       "description": "The status code of the page"
+                    },
+                    "numPages": {
+                      "type": "integer",
+                      "description": "For PDF inputs, the number of pages parsed (capped by the parsers maxPages option)."
+                    },
+                    "totalPages": {
+                      "type": "integer",
+                      "description": "For PDF inputs, the document's true page count before any maxPages capping. Omitted when it cannot be determined; a totalPages greater than numPages indicates the result was truncated."
                     },
                     "timezone": {
                       "type": "string",
