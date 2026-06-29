@@ -13,6 +13,20 @@ const menuAvailabilitySchema = z.object({
   inStock: z.boolean(),
   text: z.string().optional(),
 });
+// A modifier/option group on a menu item. `role` distinguishes an item-defining choice
+// ("variation": required, sets price — a Square Item Variation) from an optional add-on
+// ("modifier" — a Square Modifier List); null when the source gives no signal. `options` stays
+// loosely typed (it can nest its own optionGroups for combos).
+const menuOptionGroupSchema = z.object({
+  id: z.string().optional(),
+  name: z.string(),
+  selectionType: z.enum(["single", "multi"]).optional(),
+  required: z.boolean().optional(),
+  minSelections: z.number().optional(),
+  maxSelections: z.number().nullable().optional(),
+  options: z.array(z.unknown()).default([]),
+  role: z.enum(["variation", "modifier"]).nullable().optional(),
+});
 const menuItemSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -24,7 +38,7 @@ const menuItemSchema = z.object({
   availability: menuAvailabilitySchema,
   dietary: z.array(z.string()).default([]),
   calories: z.number().optional(),
-  optionGroups: z.array(z.unknown()).default([]),
+  optionGroups: z.array(menuOptionGroupSchema).default([]),
   identifiers: z.object({ merchantItemId: z.string().optional() }).default({}),
   url: z.string().optional(),
   sourceUrl: z.string(),
