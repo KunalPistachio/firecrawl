@@ -28,6 +28,13 @@ const menuItemSchema = z.object({
   identifiers: z.object({ merchantItemId: z.string().optional() }).default({}),
   url: z.string().optional(),
   sourceUrl: z.string(),
+  // Enrichment fields derived by the menu-extraction service from section/context signals.
+  // Coarse food/drink category, optional finer subtype, allergen tokens, and meal periods.
+  // All optional/defaulted so older service responses remain valid.
+  category: z.enum(["food", "drink"]).nullable().optional(),
+  subcategory: z.string().nullable().optional(),
+  allergens: z.array(z.string()).default([]),
+  mealPeriods: z.array(z.string()).default([]),
 });
 const menuSectionSchema = z.object({
   id: z.string(),
