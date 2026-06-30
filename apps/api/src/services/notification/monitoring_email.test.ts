@@ -341,6 +341,7 @@ describe("sendMonitoringEmailSummary", () => {
     goal?: string | null;
     emailEnabled?: boolean;
     recipients?: string[];
+    status?: string;
     pages: Array<{
       status: string;
       meaningful?: boolean | null;
@@ -364,10 +365,12 @@ describe("sendMonitoringEmailSummary", () => {
       } as any,
       check: {
         id: "check-1",
+        status: opts.status ?? "completed",
         changed_count: opts.pages.filter(p => p.status === "changed").length,
         new_count: opts.pages.filter(p => p.status === "new").length,
         removed_count: opts.pages.filter(p => p.status === "removed").length,
         error_count: opts.pages.filter(p => p.status === "error").length,
+        error: opts.status === "failed" ? "scrape failed" : null,
       } as any,
       pages: opts.pages.map((p, i) => ({
         url: `https://example.com/${i}`,
@@ -384,6 +387,28 @@ describe("sendMonitoringEmailSummary", () => {
       })),
     };
   }
+
+  it("does not send email summaries for failed checks", async () => {
+    mockListRecipients.mockResolvedValue([
+      fakeRecipient("a@b.com", "confirmed"),
+    ]);
+
+    const result = await sendMonitoringEmailSummary(
+      buildArgs({
+        emailEnabled: true,
+        status: "failed",
+        pages: [{ status: "error" }],
+      }),
+    );
+
+    expect(result).toEqual({
+      attempted: false,
+      success: true,
+      recipients: [],
+    });
+    expect(mockListRecipients).not.toHaveBeenCalled();
+    expect(mockResendSend).not.toHaveBeenCalled();
+  });
 
   describe("judgment gating", () => {
     beforeEach(() => {

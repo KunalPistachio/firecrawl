@@ -506,6 +506,15 @@ export async function sendMonitoringEmailSummary(params: {
     return { attempted: false, success: true, recipients: [] };
   }
 
+  if (params.check.status === "failed") {
+    logger.info("Skipping monitoring email summary; check failed", {
+      monitorId: params.monitor.id,
+      checkId: params.check.id,
+      error: params.check.error,
+    });
+    return { attempted: false, success: true, recipients: [] };
+  }
+
   if (
     params.check.changed_count +
       params.check.new_count +
