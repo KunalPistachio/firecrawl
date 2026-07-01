@@ -154,7 +154,7 @@ const monitorNotificationInner = z
     slack: z
       .strictObject({
         enabled: z.boolean().optional().default(false),
-        channelId: z.string().min(1).max(64).optional(),
+        channelId: z.string().trim().min(1).max(64).optional(),
         channelName: z.string().max(128).optional(),
       })
       .optional(),
