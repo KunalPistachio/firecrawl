@@ -18,7 +18,9 @@ describe("slack token crypto", () => {
     config.SLACK_TOKEN_ENCRYPTION_KEY = crypto
       .randomBytes(32)
       .toString("hex");
-    const token = "xoxb-1234567890-abcdefghijklmnop";
+    // Opaque placeholder — the crypto layer treats the token as bytes, and we
+    // avoid real Slack bot-token shapes so secret scanners don't flag it.
+    const token = "slack-bot-token-placeholder";
     const stored = encryptSlackToken(token);
     expect(stored.startsWith("gcm:")).toBe(true);
     expect(stored).not.toContain(token);
@@ -27,7 +29,7 @@ describe("slack token crypto", () => {
 
   it("falls back to a plaintext marker when no key is set", () => {
     config.SLACK_TOKEN_ENCRYPTION_KEY = undefined;
-    const token = "xoxb-selfhosted";
+    const token = "self-hosted-token-placeholder";
     const stored = encryptSlackToken(token);
     expect(stored).toBe(`plain:${token}`);
     expect(decryptSlackToken(stored)).toBe(token);
@@ -37,14 +39,15 @@ describe("slack token crypto", () => {
     config.SLACK_TOKEN_ENCRYPTION_KEY = crypto
       .randomBytes(32)
       .toString("hex");
-    const stored = encryptSlackToken("xoxb-secret");
+    const stored = encryptSlackToken("bot-token-placeholder");
     config.SLACK_TOKEN_ENCRYPTION_KEY = undefined;
     expect(() => decryptSlackToken(stored)).toThrow();
   });
 });
 
 describe("slack signature verification", () => {
-  const secret = "8f742231b10e8888abcd99yyyzzz85a5";
+  // Arbitrary non-secret string used only as the HMAC key for these tests.
+  const secret = "test-slack-signing-secret";
 
   function sign(body: string, timestamp: string): string {
     return (
