@@ -18,6 +18,9 @@ import { ITEM_OPTIONS_QUERY, SET_LOCATION_MUTATION } from "./platformBQueries";
 const MAX_ITEMS = 150;
 const CONCURRENCY = 8;
 const OVERALL_BUDGET_MS = 20000;
+// Cap the optional location preflight well under OVERALL_BUDGET_MS so a slow geo/address endpoint
+// can't consume the whole budget and starve the per-item fetches (they still get the remainder).
+const LOCATION_BUDGET_MS = 6000;
 
 type Source = "ubereats" | "doordash" | null;
 
@@ -59,20 +62,19 @@ interface CaptureBudget {
   clear: () => void;
 }
 
-// Starts a single time budget for one capture: an AbortController that fires at OVERALL_BUDGET_MS to
-// cancel any in-flight fetch, plus an `expired` guard. Everything in a capture -- a location preflight
-// and the per-item fetches alike -- shares one budget, so the whole action stays bounded rather than
-// each phase getting its own full budget.
-function startBudget(): CaptureBudget {
+// Starts a time budget: an AbortController that fires after `ms` to cancel any in-flight fetch, plus
+// an `expired` guard so callers stop starting new work. Defaults to the overall capture budget; the
+// location preflight passes a smaller cap so it can't starve the per-item fetches.
+function startBudget(ms: number = OVERALL_BUDGET_MS): CaptureBudget {
   const controller = new AbortController();
-  const deadlineAt = Date.now() + OVERALL_BUDGET_MS;
+  const deadlineAt = Date.now() + ms;
   const timer = setTimeout(() => {
     try {
       controller.abort();
     } catch {
       /* ignore */
     }
-  }, OVERALL_BUDGET_MS);
+  }, ms);
   return {
     signal: controller.signal,
     expired: () => Date.now() >= deadlineAt,
@@ -226,14 +228,15 @@ async function capturePlatformB(): Promise<CaptureResult> {
         query: ITEM_OPTIONS_QUERY,
       });
 
-    // 3 + 4. Under one shared time budget: first resolve a delivery area for the session -- the
-    //        per-item endpoint returns no options until one is set, and a scrape session has none
-    //        (best-effort and idempotent) -- then fire one direct POST per item. Sharing the budget
-    //        keeps the whole capture bounded even if the location endpoints stall.
+    // 3 + 4. The overall budget bounds the whole capture. First resolve a delivery area for the
+    //        session -- the per-item endpoint returns no options until one is set, and a scrape
+    //        session has none (best-effort and idempotent). The preflight self-caps at
+    //        LOCATION_BUDGET_MS so a stalled geo/address endpoint can't consume the whole budget and
+    //        starve the item fetches, which then run for whatever remains of the overall budget.
     const budget = startBudget();
     const results: Record<string, unknown> = {};
     try {
-      await ensurePlatformBLocation(headers, budget.signal);
+      await ensurePlatformBLocation(headers);
       await runWithBudget(
         itemIds,
         async (itemId, signal) => {
@@ -278,11 +281,12 @@ interface AutocompletePrediction {
 // Best-effort: resolve a delivery area for the session so the per-item endpoint returns options.
 // Reads the store's own postal address from the page's JSON-LD, resolves it to a place via the
 // same-origin geo autocomplete endpoint, and sets it as the session address. All same-origin fetches
-// (cookies only). Any failure is swallowed -- the caller still attempts the item fetches.
+// (cookies only). Self-caps at LOCATION_BUDGET_MS -- a stall here can't consume the caller's whole
+// budget. Any failure is swallowed -- the caller still attempts the item fetches.
 async function ensurePlatformBLocation(
   headers: Record<string, string>,
-  signal: AbortSignal,
 ): Promise<void> {
+  const budget = startBudget(LOCATION_BUDGET_MS);
   try {
     let address:
       | {
@@ -323,7 +327,7 @@ async function ensurePlatformBLocation(
     const acResp = await fetch(
       "/unified-gateway/geo-intelligence/v2/address/autocomplete?input_address=" +
         encodeURIComponent(query),
-      { headers, credentials: "include", signal },
+      { headers, credentials: "include", signal: budget.signal },
     );
     if (!acResp.ok) return;
     const ac = (await acResp.json()) as {
@@ -345,7 +349,7 @@ async function ensurePlatformBLocation(
         method: "POST",
         headers,
         credentials: "include",
-        signal,
+        signal: budget.signal,
         body: JSON.stringify({
           operationName: "addConsumerAddressV2",
           variables: {
@@ -364,5 +368,7 @@ async function ensurePlatformBLocation(
     );
   } catch {
     /* best-effort: fall through to the item fetches */
+  } finally {
+    budget.clear();
   }
 }
