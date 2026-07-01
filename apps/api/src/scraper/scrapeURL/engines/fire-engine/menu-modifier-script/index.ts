@@ -13,7 +13,7 @@
 // payload into option groups keyed by merchant item id. Best-effort: any failure yields an empty
 // `items` map rather than throwing. Unsupported hosts (or pages where item context is not derivable
 // in-page) fall closed with no items.
-import { ITEM_OPTIONS_QUERY, SET_LOCATION_MUTATION } from "./doordashQuery";
+import { ITEM_OPTIONS_QUERY, SET_LOCATION_MUTATION } from "./platformBQueries";
 
 const MAX_ITEMS = 150;
 const CONCURRENCY = 8;
@@ -41,10 +41,10 @@ interface UberItemContext {
 export async function captureMenuModifiers(): Promise<CaptureResult> {
   const host = location.hostname;
   if (/(^|\.)ubereats\.com$/.test(host)) {
-    return captureUberEats();
+    return capturePlatformA();
   }
   if (/(^|\.)doordash\.com$/.test(host)) {
-    return captureDoorDash();
+    return capturePlatformB();
   }
   // host did not match a supported platform
   return { type: "menu-modifiers", value: { source: null, items: {} } };
@@ -85,7 +85,7 @@ async function runWithBudget<T>(
   clearTimeout(budgetTimer);
 }
 
-async function captureUberEats(): Promise<CaptureResult> {
+async function capturePlatformA(): Promise<CaptureResult> {
   const out: CaptureResult = {
     type: "menu-modifiers",
     value: { source: "ubereats", items: {} },
@@ -151,7 +151,7 @@ async function captureUberEats(): Promise<CaptureResult> {
   return out;
 }
 
-async function captureDoorDash(): Promise<CaptureResult> {
+async function capturePlatformB(): Promise<CaptureResult> {
   const out: CaptureResult = {
     type: "menu-modifiers",
     value: { source: "doordash", items: {} },
@@ -194,7 +194,7 @@ async function captureDoorDash(): Promise<CaptureResult> {
     // 3. Resolve a delivery area for the session. The per-item endpoint returns no options until one
     //    is set, and a scrape session has none. Best-effort and idempotent: resolve the store's own
     //    address to a place and set it; on any failure we still attempt the item fetches below.
-    await ensureDoorDashLocation(headers);
+    await ensurePlatformBLocation(headers);
 
     // 4. One direct POST per item to the per-item endpoint. It accepts the query inline and needs
     //    only the page's cookies (credentials: include) plus the constant client headers below.
@@ -249,7 +249,7 @@ interface AutocompletePrediction {
 // Reads the store's own postal address from the page's JSON-LD, resolves it to a place via the
 // same-origin geo autocomplete endpoint, and sets it as the session address. All same-origin fetches
 // (cookies only). Any failure is swallowed -- the caller still attempts the item fetches.
-async function ensureDoorDashLocation(
+async function ensurePlatformBLocation(
   headers: Record<string, string>,
 ): Promise<void> {
   try {
