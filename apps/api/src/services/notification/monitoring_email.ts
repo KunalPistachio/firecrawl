@@ -470,14 +470,17 @@ export async function sendMonitoringEmailSummary(params: {
       params.check.error_count <=
     0
   ) {
-    logger.info("Skipping monitoring email summary; no changes detected", {
-      monitorId: params.monitor.id,
-      checkId: params.check.id,
-      changed: params.check.changed_count,
-      new: params.check.new_count,
-      removed: params.check.removed_count,
-      errors: params.check.error_count,
-    });
+    logger.info(
+      "Skipping monitoring email summary; no reportable changes detected",
+      {
+        monitorId: params.monitor.id,
+        checkId: params.check.id,
+        changed: params.check.changed_count,
+        new: params.check.new_count,
+        removed: params.check.removed_count,
+        errors: params.check.error_count,
+      },
+    );
     return { attempted: false, success: true, recipients: [] };
   }
 
