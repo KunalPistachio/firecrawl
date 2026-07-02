@@ -51,9 +51,12 @@ const configSchema = z.object({
 
   // API Keys & Authentication
   BULL_AUTH_KEY: z.string().optional(),
+  CUSTOM_API_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_BASE_URL: z.string().optional(),
   OPENROUTER_API_KEY: z.string().optional(),
+  GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
   XAI_API_KEY: z.string().optional(),
   LLAMAPARSE_API_KEY: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().optional(),
@@ -201,6 +204,9 @@ const configSchema = z.object({
   PLAYWRIGHT_MICROSERVICE_URL: z.string().optional(),
   HTML_TO_MARKDOWN_SERVICE_URL: z.string().optional(),
   SMART_SCRAPE_API_URL: z.string().optional(),
+  LUSHA_API_KEY: z.string().optional(),
+  LUSHA_BASE_URL: z.string().url().default("https://api.lusha.com"),
+  LUSHA_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
 
   // PDF Processing
   PDF_MU_V2_BASE_URL: z.string().optional(),

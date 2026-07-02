@@ -62,6 +62,7 @@ import {
 import { activityController } from "../controllers/v1/activity";
 import { supportProxyController } from "../controllers/v2/support-proxy";
 import { createResearchRouter } from "../controllers/v2/research-proxy";
+import { customRouter } from "./custom";
 import {
   scrapeInteractController,
   scrapeStopInteractiveBrowserController,
@@ -138,6 +139,8 @@ const parsePayloadMiddleware: express.RequestHandler = (req, res, next) => {
 };
 // Add timing middleware to all v2 routes
 v2Router.use(requestTimingMiddleware("v2"));
+
+v2Router.use("/custom", customRouter);
 
 // Internal: trusted-proxy (hosted MCP) keyless eligibility probe. Secret-gated
 // inside the controller; no auth middleware.
